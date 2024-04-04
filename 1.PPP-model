@@ -1,0 +1,815 @@
+#####磷酸戊糖代谢诊断模型构建##########
+library(data.table)
+library(limma)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group_list=group$group
+#差异分析
+design <- model.matrix(~0+factor(group_list))
+colnames(design)=levels(factor(group_list))
+rownames(design)=colnames(exp)
+contrast.matrix<-makeContrasts("PP-NN",levels=design)  #比较design矩阵中HC与MDD组
+data=exp
+fit <- lmFit(data,design)
+##step2
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)  
+##step3
+tempOutput = topTable(fit2, coef=1, n=Inf)
+nrDEG = na.omit(tempOutput) 
+deg=nrDEG
+##设置logFC值和P值来标记上下调基因
+logFC=2
+P.Value = 0.05
+type1 = (deg$P.Value < P.Value)&(deg$logFC < -logFC)
+type2 = (deg$P.Value < P.Value)&(deg$logFC > logFC)
+deg$Group = ifelse(type1,"Down",ifelse(type2,"Up","Not-Sig"))
+table(deg$Group)
+table(deg$Group)
+library(ggplot2)
+save(deg,file="E:/muma/银屑病GEO/GSE54456/deg.Rdata")
+###########火山图#################
+cut_off_pvalue=0.05
+ggplot(deg, aes(x = logFC, y = -log10(P.Value), colour=Group)) +
+  geom_point(alpha=0.4, size=3.5) +
+  scale_color_manual(values=c("#546de5", "#d2dae2","#ff4757"))+
+  
+  scale_x_continuous(limits = c(-10,10))+
+  # 辅助线
+  geom_vline(xintercept=c(-1,1),lty=4,col="black",lwd=0.8) +
+  geom_hline(yintercept = -log10(cut_off_pvalue),
+             lty=4,col="black",lwd=0.8) +
+  # 坐标轴
+  labs(x="log2(Fold Change)",
+       y="-log10 (P-value)")+
+  theme_bw()+
+  ggtitle("Volcano Plot")+
+  # 图例
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.position="right", 
+        legend.title = element_blank()
+  )
+library(export)
+graph2pdf(file='E:/muma/银屑病代谢/图1/GSE54456_PP_NN火山图.pdf',width=10,height=10)
+write.csv(deg,"E:/muma/银屑病代谢/图1/GSE54456_PP_NN差异基因.csv")
+dev.off()
+########做半分小提琴图##############
+gene=read.csv("E:/muma/银屑病代谢/磷酸戊糖相关基因.csv")
+library(data.table)
+
+nrDEG=deg[!deg$Group==c("Not-Sig"),]
+Dgene=nrDEG[row.names(nrDEG)%in%gene$allgene,]
+DEdata=data[row.names(data)%in%rownames(Dgene),]
+DEdata=log2(DEdata+0.1)
+save(DEdata,file="E:/muma/银屑病GEO/GSE54456/DEdata.Rdata")
+
+library(ggpubr)
+GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin, draw_group = function(self, data, ..., draw_quantiles = NULL){
+  data <- transform(data, xminv = x - violinwidth * (x - xmin), xmaxv = x + violinwidth * (xmax - x))
+  grp <- data[1,'group']
+  newdata <- plyr::arrange(transform(data, x = if(grp%%2==1) xminv else xmaxv), if(grp%%2==1) y else -y)
+  newdata <- rbind(newdata[1, ], newdata, newdata[nrow(newdata), ], newdata[1, ])
+  newdata[c(1,nrow(newdata)-1,nrow(newdata)), 'x'] <- round(newdata[1, 'x']) 
+  if (length(draw_quantiles) > 0 & !scales::zero_range(range(data$y))) {
+    stopifnot(all(draw_quantiles >= 0), all(draw_quantiles <= 
+                                              1))
+    quantiles <- create_quantile_segment_frame(data, draw_quantiles)
+    aesthetics <- data[rep(1, nrow(quantiles)), setdiff(names(data), c("x", "y")), drop = FALSE]
+    aesthetics$alpha <- rep(1, nrow(quantiles))
+    both <- cbind(quantiles, aesthetics)
+    quantile_grob <- GeomPath$draw_panel(both, ...)
+    ggplot2:::ggname("geom_split_violin", grobTree(GeomPolygon$draw_panel(newdata, ...), quantile_grob))
+  }
+  else {
+    ggplot2:::ggname("geom_split_violin", GeomPolygon$draw_panel(newdata, ...))
+  }
+})
+
+geom_split_violin <- function (mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ..., draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE, show.legend = NA, inherit.aes = TRUE) {
+  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, position = position, show.legend = show.legend, inherit.aes = inherit.aes, params = list(trim = trim, scale = scale, draw_quantiles = draw_quantiles, na.rm = na.rm, ...))
+}
+###自定义颜色
+library(ggsci)
+library(ggpubr)
+library(ggstatsplot)
+mypal=pal_simpsons(alpha = .6)(9)
+mypal[c(1,7)]
+#show_col(mypal)
+#show_col(mypal[c(4,7)])
+
+###自定义主题
+mytheme <- theme(axis.text.x=element_text(size=12, angle = 90), 
+                 axis.text.y=element_text(size=12), 
+                 axis.title=element_text(size = 13), 
+                 legend.text=element_text(size=12),
+                 legend.title=element_text(size=12),
+                 axis.line = element_line(size=0.7), 
+                 panel.border = element_blank(),
+                 panel.grid = element_blank())
+DEdata=as.data.frame(t(DEdata))
+DEdata$group=group$group
+data_melt<-melt(DEdata,id.vars = "group")#把data中按照“group”的宽数据变成长数据
+names(data_melt)=c("group","gene","expression_level")#重命名数据列名
+#data_melt$group=gsub("0","CNTL",data_melt$group)
+
+ggplot(data_melt,aes(x=gene,y = expression_level,fill=group))+
+  geom_split_violin(trim = T,colour=NA)+
+  geom_point(stat = 'summary',fun=mean,
+             position = position_dodge(width = 0.9))+
+  scale_fill_manual(values = c("#207f4c","#ea7293","#5cb3cc"))+
+  stat_summary(fun.min = function(x){quantile(x)[2]},
+               fun.max = function(x){quantile(x)[4]},
+               geom = 'errorbar',color='black',
+               width=0.01,size=0.5,
+               position = position_dodge(width = 0.9))+
+  theme_bw()+
+  mytheme+ylim(0,10)+
+  stat_compare_means(data = data_melt,aes(x=gene,y = expression_level,fill=group),label = 'p.signif',method = "t.test")+
+  ylab("expression_level(log2RPKM+1)")+xlab("gene")
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/差异途径基因小提琴图.pdf",width=8,height=8)
+
+dev.off()
+############相关性热图##############
+rm(list=ls())
+
+load("E:/muma/银屑病GEO/GSE54456/DEdata.Rdata")
+load("E:/muma/银屑病GEO/GSE54456/deg.Rdata")
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+
+data=as.data.frame((DEdata))
+data=data[,-14]
+
+#rownames(data)=rownames(Dgene)
+group=group[group$group==c("PP"),]
+data=as.data.frame(t(data))
+exppso_DE=data[rownames(data)%in%group$title,]######行名为基因
+data=exppso_DE
+data=as.data.frame((data))
+
+library(ggcor)
+data=as.data.frame(lapply(data,as.numeric))
+row.names(data)=row.names(exppso_DE)
+###########美化######################
+library(ggplot2)
+library(ggcor)
+
+mycolors <- c("#3b374c", "#44598e", "#64a0c0", "#7ec4b7", "#deebcd") #藏青-浅绿
+library(ggcor)
+data.cor <- correlate(data,
+                      cor.test = TRUE, #进行相关性检验
+                      method = "pearson", #检验方法，"pearson", "kendall", "spearman"
+                      use = "pairwise.complete.obs", #缺失值处理方法
+                      p.adjust = F, #是否进行p值校正
+                      p.adjust.method = "holm", #校正方法[不懂原理及应用的保存默认设置即可]，自定义请详细阅读说明及源码
+) 
+
+data.plot <- as_cor_tbl(data.cor, #相关性矩阵结果
+                        show.diag = TRUE, #是否显示对角线
+                        cluster = TRUE, #是否聚类
+                        cluster.method = "complete" #聚类方法.....
+) #转换为绘图格式
+
+
+
+#绘制p5，新添加交叉标记、置信度星号、斜线纹理
+mycolors <- c("#3b374c","#073f82", "#1b71b4", "#58a4cf", "#7ec4b7", "#deebcd") #藏青-浅绿
+quickcor(data, cor.test = TRUE)+ 
+  geom_abline(slope = -1, intercept = 12)+
+  
+  #下面任选一个图形，其他的在代码最前面加#号，注意此处多了get_data(type = "lower")，可以设置"lower", "upper", "full"等
+  geom_square(data = get_data(type = "lower"), colour = "#5a5c5f", size = 0.6, linetype = 2) +  #绘制正方形热图
+  #geom_circle2(data = get_data(type = "lower"), colour = "grey35", size = 0.25, linetype = 2)+ #绘制圆形热图
+  #geom_ellipse2(data = get_data(type = "lower"), colour = "#5a5c5f", size = 0.6, linetype = 2)+ #椭圆形热图
+  #geom_colour(data = get_data(type = "lower"), colour = "#5a5c5f", size = 0.6, linetype = 2)+   #经典热图
+  #geom_pie2(data = get_data(type = "lower"))+ #绘制饼图
+  #geom_star(data = get_data(type = "lower"))+ #绘制五角星热图
+  geom_shade(data = get_data(type = "lower"), sign = 1)+ #添加斜线阴影,sign>0,则在R值大于0的位置添加阴影。反之...
+  geom_mark(data = get_data(type = "upper", r != 1, p.value < 0.05, abs(r) >= 0.01), #get_data调用dplyr包的filter函数用于过滤
+            size = 2 #, #设置字体大小
+          #  aes(colour = "r"), #设置字体颜色映射
+            #show.legend = F
+  )+
+  geom_cross(data = get_data(type = "lower"), colour = "orange")+ #交叉标记，排除不显著的(即右上角空白处对应的位置)
+  
+  scale_fill_gradientn(colours = mycolors,  #自定义颜色
+                       breaks = c(-0.6, 0, 0.6)) +  #自定义刻度值
+  labs(fill = "Cor(R)")+ #修改图例标题
+  theme(
+    axis.text.x = element_text(color = c(rep(mycolors[1], 13), rep(mycolors[length(mycolors)-1], 13)), #X轴标签颜色
+                               #face = "bold", 
+                               size = 10), #设置加粗字体和大小
+    axis.text.y = element_text(color = c(rep(mycolors[1], 13), rep(mycolors[length(mycolors)-1], 13)), #Y轴标签颜色
+                               #face = "bold", 
+                               size = 10)   #设置加粗字体和大小
+  )
+
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/差异PPP基因相关性.pdf",width=8,height=8)
+
+dev.off()
+
+############第二步做RF随机森林和SVM################
+svmRFE.wrap <- function(test.fold, X, ...) {
+  # Wrapper to run svmRFE function while omitting a given test fold
+  train.data = X[-test.fold, ]
+  test.data  = X[test.fold, ]
+  
+  # Rank the features
+  features.ranked = svmRFE(train.data, ...)
+  
+  return(list(feature.ids=features.ranked, train.data.ids=row.names(train.data), test.data.ids=row.names(test.data)))
+}
+
+svmRFE <- function(X, k=1, halve.above=5000) {
+  # Feature selection with Multiple SVM Recursive Feature Elimination (RFE) algorithm
+  n = ncol(X) - 1
+  
+  # Scale data up front so it doesn't have to be redone each pass
+  cat('Scaling data...')
+  X[, -1] = scale(X[, -1])
+  cat('Done!\n')
+  flush.console()
+  
+  pb = txtProgressBar(1, n, 1, style=3)
+  
+  i.surviving = 1:n
+  i.ranked    = n
+  ranked.list = vector(length=n)
+  
+  # Recurse through all the features
+  while(length(i.surviving) > 0) {
+    if(k > 1) {
+      # Subsample to obtain multiple weights vectors (i.e. mSVM-RFE)            
+      folds = rep(1:k, len=nrow(X))[sample(nrow(X))]
+      folds = lapply(1:k, function(x) which(folds == x))
+      
+      # Obtain weights for each training set
+      w = lapply(folds, getWeights, X[, c(1, 1+i.surviving)])
+      w = do.call(rbind, w)
+      
+      # Normalize each weights vector
+      w = t(apply(w, 1, function(x) x / sqrt(sum(x^2))))
+      
+      # Compute ranking criteria
+      v    = w * w
+      vbar = apply(v, 2, mean)
+      vsd  = apply(v, 2, sd)
+      c    = vbar / vsd
+    } else {
+      # Only do 1 pass (i.e. regular SVM-RFE)
+      w = getWeights(NULL, X[, c(1, 1+i.surviving)])
+      c = w * w
+    }
+    
+    # Rank the features
+    ranking = sort(c, index.return=T)$ix
+    if(length(i.surviving) == 1) {
+      ranking = 1
+    }
+    
+    if(length(i.surviving) > halve.above) {
+      # Cut features in half until less than halve.above
+      nfeat = length(i.surviving)
+      ncut  = round(nfeat / 2)
+      n     = nfeat - ncut
+      
+      cat('Features halved from', nfeat, 'to', n, '\n')
+      flush.console()
+      
+      pb = txtProgressBar(1, n, 1, style=3)
+      
+    } else ncut = 1
+    
+    # Update feature list
+    ranked.list[i.ranked:(i.ranked-ncut+1)] = i.surviving[ranking[1:ncut]]
+    i.ranked    = i.ranked - ncut
+    i.surviving = i.surviving[-ranking[1:ncut]]
+    
+    setTxtProgressBar(pb, n-length(i.surviving))
+    flush.console()
+  }
+  
+  close(pb)
+  
+  return (ranked.list)
+}
+
+getWeights <- function(test.fold, X) {
+  # Fit a linear SVM model and obtain feature weights
+  train.data = X
+  if(!is.null(test.fold)) train.data = X[-test.fold, ]
+  
+  svmModel = svm(train.data[, -1], train.data[, 1], cost=10, cachesize=500,
+                 scale=F, type="C-classification", kernel="linear")
+  
+  t(svmModel$coefs) %*% svmModel$SV
+}
+
+WriteFeatures <- function(results, input, save=T, file='features_ranked.txt') {
+  # Compile feature rankings across multiple folds
+  featureID = sort(apply(sapply(results, function(x) sort(x$feature, index.return=T)$ix), 1, mean), index=T)$ix
+  avg.rank  = sort(apply(sapply(results, function(x) sort(x$feature, index.return=T)$ix), 1, mean), index=T)$x
+  feature.name = colnames(input[, -1])[featureID]
+  features.ranked = data.frame(FeatureName=feature.name, FeatureID=featureID, AvgRank=avg.rank)
+  if(save==T) {
+    write.table(features.ranked, file=file, quote=F, row.names=F)
+  } else {
+    features.ranked
+  }
+}
+
+FeatSweep.wrap <- function(i, results, input) {
+  # Wrapper to estimate generalization error across all hold-out folds, for a given number of top features
+  svm.list = lapply(results, function(x) tune(svm,
+                                              train.x      = input[x$train.data.ids, 1+x$feature.ids[1:i]],
+                                              train.y      = input[x$train.data.ids, 1],
+                                              validation.x = input[x$test.data.ids, 1+x$feature.ids[1:i]],
+                                              validation.y = input[x$test.data.ids, 1],
+                                              # Optimize SVM hyperparamters
+                                              ranges       = tune(svm,
+                                                                  train.x = input[x$train.data.ids, 1+x$feature.ids[1:i]],
+                                                                  train.y = input[x$train.data.ids, 1],
+                                                                  ranges  = list(gamma=2^(-12:0), cost=2^(-6:6)))$best.par,
+                                              tunecontrol  = tune.control(sampling='fix'))$perf)
+  
+  error = mean(sapply(svm.list, function(x) x$error))
+  return(list(svm.list=svm.list, error=error))
+}
+
+
+PlotErrors <- function(errors, errors2=NULL, no.info=0.5, 
+                       ylim=range(c(errors, errors2), na.rm=T), 
+                       xlab='Number of Features',  ylab='5 x CV Error') {
+  # Makes a plot of average generalization error vs. number of top features
+  AddLine <- function(x, col='dodgerblue') {
+    lines(which(!is.na(errors)), na.omit(x), col=col,lwd=3)
+    points(which.min(x), min(x, na.rm=T), col='firebrick3')
+    text(which.min(x), min(x, na.rm=T), paste(which.min(x), '-', 
+                                              format(min(x, na.rm=T), dig=3)), pos=2, col='red', cex=1.15)
+  }
+  
+  plot(errors, type='n', ylim=ylim, xlab=xlab, ylab=ylab)
+  AddLine(errors)
+  if(!is.null(errors2)) AddLine(errors2, 'gray30')
+  abline(h=no.info, lty=2)
+}
+
+
+Plotaccuracy <- function(errors, errors2=NULL, no.info=0.5, 
+                         ylim=range(c(errors, errors2), na.rm=T), 
+                         xlab='Number of Features',  ylab='5 x CV Accuracy') {
+  # Makes a plot of average generalization error vs. number of top features
+  AddLine <- function(x, col='dodgerblue') {
+    lines(which(!is.na(errors)), na.omit(x), col=col,lwd=3)
+    points(which.max(x), max(x, na.rm=T), col='firebrick3')
+    text(which.max(x), max(x, na.rm=T), paste(which.max(x), '-', 
+                                              format(max(x, na.rm=T), dig=3)), pos=2, col='red', cex=1.15)
+  }
+  
+  plot(errors, type='n', ylim=ylim, xlab=xlab, ylab=ylab)
+  AddLine(errors)
+  if(!is.null(errors2)) AddLine(errors2, 'gray30')
+  abline(h=no.info, lty=2)
+}
+
+
+#划分训练集和验证集，运用的是caret包，训练：验证=0.75: 0.25
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+gene=read.csv("E:/muma/银屑病代谢/磷酸戊糖相关基因.csv")
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+
+nrDEG=deg[!deg$Group==c("Not-Sig"),]
+Dgene=nrDEG[row.names(nrDEG)%in%gene$allgene,]
+DEdata=data[row.names(data)%in%rownames(Dgene),]
+
+colname=rownames(Dgene)
+
+data=as.data.frame(t(DEdata))
+data$group=group$group
+data[,c("group")] <-  as.numeric(factor(data[,c("group")]))
+colnames(data)=colname
+data2=data[,(14:14)]
+data3=data[,1:13]
+data4=cbind(data2,data3)
+input=data4
+dim(input)
+input[1:5,1:5]
+library(tidyverse)
+library(glmnet)
+library(sigFeature)
+library(e1071)
+library(caret)
+library(randomForest)
+source('D:/R-4.1.0/msvmRFE.R')
+set.seed(12345)
+
+# Basic usage
+svmRFE(input, k=10, halve.above=100)
+
+# Set up cross validation
+nfold = 10
+nrows = nrow(input)
+folds = rep(1:nfold, len=nrows)[sample(nrows)]
+folds
+folds = lapply(1:nfold, function(x) which(folds == x))
+folds
+
+# Perform feature ranking on all training sets
+results = lapply(folds, svmRFE.wrap, input, k=10, halve.above=100)
+length(results)
+results
+
+# Obtain top features across ALL folds
+top.features = WriteFeatures(results, input, save=F)
+head(top.features)
+write.csv(top.features,"E:/muma/银屑病代谢/图1/topfeatures.csv")
+# Estimate generalization error using a varying number of top features
+featsweep = lapply(1:10, FeatSweep.wrap, results, input)
+featsweep
+
+# Make plot
+no.info = min(prop.table(table(input[,1])))
+errors = sapply(featsweep, function(x) ifelse(is.null(x), NA, x$error))
+
+dev.new(width=4, height=4, bg='blue')
+# Calling Windows Fonts
+windowsFonts(Times_New_Roman=windowsFont("Times New Roman"))
+
+element_text(family='Times_New_Roman', size = 13, face='bold')
+
+PlotErrors(errors, no.info=no.info)
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/svm-error图.pdf",width=8,height=8)
+
+dev.off()
+pdf("svm-accuracy.pdf",width = 5,height = 5)
+library(bRacatus)
+Plotaccuracy(1-errors,no.info=no.info) #查看准确???
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/svm-accuracy图.pdf",width=8,height=8)
+dev.off()
+
+#################随机森林#########
+library(randomForest)
+library(randomForest)
+library(ROCR)
+library(genefilter)
+library(Hmisc)
+#拆分训练集与测试集
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+
+nrDEG=deg[!deg$Group==c("Not-Sig"),]
+Dgene=nrDEG[row.names(nrDEG)%in%gene$allgene,]
+DEdata=data[row.names(data)%in%rownames(Dgene),]
+
+colname=rownames(Dgene)
+
+data=as.data.frame(t(DEdata))
+data$group=group$group
+data[,c("group")] <-  as.numeric(factor(data[,c("group")]))
+colnames(data)=colname
+data2=data[,(14:14)]
+data2=as.data.frame(data2)
+colnames(data2)=c("group")
+data3=data[,1:13]
+data4=cbind(data2,data3)
+
+data= data4
+#data=as.data.frame(t(data))
+index <- sample(2,nrow(data),replace = TRUE,prob=c(0.7,0.3))
+traindata <- data[index==1,]
+testdata <- data[index==2,]
+
+set.seed(1234)#该命令的作用是设定生成随机数的种子,种子是为了让结果具有重复性。生成的随机数无法重现
+fit.forest <- randomForest(group~., data=traindata,        
+                           
+                           na.action=na.roughfix,
+                           
+                           importance=TRUE)  
+importance<- data.frame(importance(fit.forest, scale = TRUE), check.names = FALSE)
+importance
+#设置proximity=TRUE,则指定计算临近矩阵
+
+fit.forest
+
+importance(fit.forest, type=2) 
+
+#验证(可无)
+
+forest.pred <- predict(fit.forest, testdata)         
+
+forest.perf <- table(testdata$group, forest.pred, 
+                     
+                     dnn=c("Actual", "Predicted"))
+
+forest.perf
+
+#随机森林的可视化
+
+hist(treesize(fit.forest))##展示随机森林中每棵树决策树的节点数
+
+plot(fit.forest,col="blue", lwd=2)#模型误差图
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/随机森林模型误差图.pdf",width=8,height=8)
+
+#对模型提取重要值列表
+dev.new(
+  
+  title = "RDA scaling 1 and 2 + lc",
+  
+  width = 16,
+  
+  height = 8,
+  
+  noRStudioGD = TRUE
+  
+)
+
+varImpPlot(fit.forest, main = "variable importance")
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/随机森林重要值列表图.pdf",width=8,height=8)
+
+b=fit.forest$importance
+b=as.data.frame(b)
+b=b[order(b$`%IncMSE`, decreasing = TRUE), ]
+write.csv(b,"E:/muma/银屑病代谢/图1/随机森林重要性特征值all.csv")
+b$gene=row.names(b)
+b$importance=b$`%IncMSE`
+b=b[(1:13),]
+write.csv(b,"E:/muma/银屑病代谢/图1/随机森林重要性特征值TOP20.csv")
+b=read.csv("E:/muma/银屑病代谢/图1/随机森林重要性特征值TOP20.csv")
+b$gene <- as.factor(b$gene)
+b$gene <- fct_inorder(b$gene)
+b$gene <-reorder(b$gene ,b$importance )
+p <- ggplot(b,aes(x=gene,y=importance))+
+  geom_point(data=b,aes(size=1,color=importance))+
+  scale_size(rang = c(2,8))+
+  scale_color_viridis_c()+  
+  labs(x="importance", y='gene',title = '')+
+  geom_segment(aes(x=gene, xend=gene, y=0, yend=importance), color="black") +
+  theme_bw()+
+  coord_flip()+
+  theme(axis.text.x=element_text(angle=90,hjust = 1,vjust=0.5),
+        panel.border = element_blank(),
+        axis.text =element_text(size = 10, color = "black"),
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust=0.5))
+p
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/随机森林棒棒糖图.pdf",width=8,height=8)
+#########
+#######%INcMSE和INcNodePurity相对重要性和节点纯度#################
+############LASSO###################
+library(ElemStatLearn) #contains the data
+library(car) #package to calculate Variance Inflation Factor
+library(corrplot) #correlation plots
+library(leaps) #best subsets regression
+library(glmnet) #allows ridge regression, LASSO and elastic net
+library(caret) #this will help identify the appropriate parameters
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+nrDEG=deg[!deg$Group==c("Not-Sig"),]
+Dgene=nrDEG[row.names(nrDEG)%in%gene$allgene,]
+DEdata=data[row.names(data)%in%rownames(Dgene),]
+
+colname=rownames(Dgene)
+
+data=as.data.frame(t(DEdata))
+data$group=group$group
+data[,c("group")] <-  as.numeric(factor(data[,c("group")]))
+colnames(data)=colname
+data2=data[,(14:14)]
+data3=data[,1:13]
+data3$group=ifelse(group$group=="PP",0,1)
+index <- sample(2,nrow(data3),replace = TRUE,prob=c(0.7,0.3))
+table(index)
+data3$train=ifelse(index=="1",TRUE,FALSE)
+train <- subset(data3, train == TRUE)[, 1:14]
+str(train)
+test = subset(data3, train==FALSE)[,1:14]
+str(test)
+x <- as.matrix(train[, 1:13])
+y <- train[, 14]
+lasso <- glmnet(x, y, family = "gaussian", alpha = 1)
+print(lasso)
+par(mfrow=c(1,2))
+plot(lasso, xvar = "lambda", label = TRUE)  
+library(export)
+graph2pdf(file='E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/loglamda图.pdf',width=10,height=10)
+#变量筛选
+mod_cv <- cv.glmnet(x=x, y=y, family="gaussian", # 默认nfolds = 10
+                    intercept = F, alpha=1)
+
+plot(mod_cv) 
+graph2pdf(file='E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/test_MSE_by_lambdavalue图.pdf',width=10,height=10)
+#通过交叉验证，我们可以选择平均误差最小的那个λ，即mod_cv$lambda.min也可以选择平均误差在一个标准差以内的最大的λ，即mod_cv$lambda.1se。
+
+# lambda.min : the λ at which the minimal MSE is achieved.
+
+# lambda.1se : the largest λ at which the MSE is within one standard error of the minimal MSE.
+print(paste(mod_cv$lambda.min,
+            log(mod_cv$lambda.min)))
+print(paste(mod_cv$lambda.1se,
+            log(mod_cv$lambda.1se)))
+
+# 这里我们以lambda.min为最优 λ
+best_lambda <- mod_cv$lambda.min
+best_lambda
+# 最终模型的系数估计
+#find coefficients of best model
+best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+coef(best_model)
+model=coef(best_model)
+index = which(model != 0) 
+actCoef =model[index] 
+lassoGene = row.names(model)[index] 
+geneCoef = cbind(Gene=lassoGene,Coef=actCoef) 
+
+write.csv(geneCoef ,"E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/LASSO筛出的最终模型.csv")
+##############Venn图#################
+library(xlsx)
+dat1 <-top.features[(8:13),]
+dat2 <-importance[order(importance$`%IncMSE`,decreasing=T),]######根据相对重要性排序
+dat2 <-dat2[dat2$`%IncMSE`>5,]####以6为筛选节点
+dat3 <-read.csv("E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/LASSO筛出的最终模型.csv")
+dat3=dat3[-1,]
+dat3=na.omit(dat3)
+dat3=dat3[!dat3$Coef==0,]
+dat1gene=dat1$FeatureName
+dat2gene=rownames(dat2)
+dat3gene=dat3$Gene
+
+library(grid)
+library(VennDiagram)
+
+venn_list <- list(SVM_RFE = dat1gene,RF = dat2gene,LASSO=dat3gene)
+
+venn.plot <- venn.diagram(
+  venn_list,
+  filename = "E:/muma/银屑病代谢/图1/venn.png", #设为空
+  lwd = 3,
+  col = "transparent",
+  fill = c("cornflowerblue", "darkorchid1","pink"),
+  alpha = 0.6,
+  label.col = "black",
+  cex = 1.5,
+  fontfamily = "serif",
+  fontface = "bold",
+  cat.col = c("cornflowerblue", "darkorchid1","pink"),
+  cat.cex = 2,
+  cat.fontfamily = "serif",
+  cat.fontface = "bold",
+  margin = 0.05,
+  cat.dist = c(0.03, 0.03,0.03),
+  cat.pos = c(-20, 0,20)
+)
+
+dev.off()
+library(dplyr)
+dat2$FeatureName=rownames(dat2)
+dat3$FeatureName=dat3$Gene
+
+con1 <- merge(dat1,dat2,by ="FeatureName")
+con2 <- merge(con1,dat3,by ="FeatureName")
+
+dim(con2)
+
+con2
+
+###########ROC曲线#############################
+data4=cbind(data2,data3)
+
+signaturegene=c( "H6PD")
+library(pROC)
+#先进行logistic拟合，使用glm函数  注意--列线图使用lrm函数
+library(rio)
+logisgsemer <- import("clipboard",header=T)	 
+data4$group=as.numeric(as.factor(data4$group))
+glmfit <- glm(data = data4,group~H6PD+ALDOA)   #Disease是数值型
+print(glmfit)
+predict(glmfit)
+data4$predicted_values <- predict(glmfit)  #将结果加到表格中
+#head(rocexp)
+fitted(glmfit)    #结果与predict(glmfit)或predict(glmfit,type = "response")相同
+exp(cbind(OR=coef(glmfit),confint(glmfit))) #查看OR及置信区间
+roc_muti<- roc(data4$group,fitted(glmfit),plot=TRUE) #AMI$status是因变量，fitted(glmfit)是自变量
+plot(roc_muti,print.auc=TRUE,           #去掉smooth为不光滑曲线
+     print.auc.x=0.4,print.auc.y=0.5,
+     print.auc.col=c("tan4"),
+     auc.polygon=TRUE,
+     auc.polygon.col="beige",  #阴影颜色 #E16A86  #00AD9A  #FFFFCC  beige seashell  linen
+     grid=c(0.5,0.2),
+     grid.col=c("black","black"),
+     print.thres=TRUE, 
+     main="ROC_muti",
+     col="tan4",
+     legacy.axes=TRUE) 
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/ROC曲线及DCA曲线/muti_ROC曲线.pdf",width=8,height=8)
+library(survival)
+library(rms)
+#打包数据	
+dd=datadist(data4)
+options(datadist="dd")
+
+##构建logistics风险模型
+fit<-lrm(formula = group~H6PD,data = data4)
+#查看模型结果-C指数
+print(fit)
+#给出模型参数的OR和置信区间
+cbind(coef=coef(fit),OR=exp(coef(fit)))
+
+##绘制列线图
+plot(nomogram(fit, fun = function(x)plogis(x)))  #普通
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/ROC曲线及DCA曲线/列线图.pdf",width=12,height=12)
+
+library(regplot)
+regplot(fit,observation=data4[8,], clickable=TRUE, 
+        points=TRUE, rank="sd") #线段动态nomogram   ##可点击， observation参数用于指定要标记的观测值（数据点）所在的行号
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/ROC曲线及DCA曲线/列线图2.pdf",width=12,height=12)
+########DCA决策曲线############
+library(rmda)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+
+nrDEG=deg[!deg$Group==c("Not-Sig"),]
+Dgene=nrDEG[row.names(nrDEG)%in%gene$allgene,]
+signaturegene=c( "ALDOA"  ,"H6PD")
+DEdata=data[row.names(data)%in%signaturegene,]
+
+colname=signaturegene
+
+data=as.data.frame(t(DEdata))
+data$group=group$group
+data[,c("group")] <-  as.numeric(factor(data[,c("group")]))
+colnames(data)=colname
+data2=data[,(3:3)]
+data2=as.data.frame(data2)
+colnames(data2)=c("group")
+data3=data[,1:2]
+data4=cbind(data2,data3)
+data4$group=as.numeric(as.factor(data4$group))
+data4$group=gsub("2","0",data4$group)
+data4$group=as.numeric(data4$group)
+####简单模型---单个自变量
+simple_H6PD<-decision_curve(group ~ H6PD,
+                            data = data4,family = binomial(link ='logit'),
+                            thresholds = seq(0,1, by = 0.01),
+                            confidence.intervals= 0.95,
+                            study.design = 'case-control',
+                            population.prevalence = 0.3)
+
+simple_ALDOA<-decision_curve(group ~ ALDOA,
+                             data = data4,family = binomial(link ='logit'),
+                             thresholds = seq(0,1, by = 0.01),
+                             confidence.intervals= 0.95,
+                             study.design = 'case-control',
+                             population.prevalence = 0.3)
+####复杂模型---多个自变量
+complex<-decision_curve(group ~H6PD+ALDOA,
+                        data = data4,family = binomial(link ='logit'),
+                        thresholds = seq(0,1, by = 0.01),
+                        confidence.intervals= 0.95,
+                        study.design = 'case-control',
+                        population.prevalence = 0.3)
+
+#####创建list将所有模型画在一张图中
+List<- list(simple_H6PD,simple_ALDOA,complex)
+plot_decision_curve(List,
+                    curve.names=c(   "H6PD",   "ALDOA", 'complex'),
+                    cost.benefit.axis =FALSE,col= c("#0072B2", "#E69F00", "#009E73", "#D55E33", "#CC79A7"),
+                    confidence.intervals=FALSE, 
+                    standardize = FALSE)
+library(export)
+graph2pdf(file="E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/ROC曲线及DCA曲线/DCA曲线图.pdf",width=12,height=12)
