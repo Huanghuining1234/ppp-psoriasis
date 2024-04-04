@@ -1,0 +1,1775 @@
+load("E:/muma/银屑病代谢/GSE151177/processed_data/scRNA1.Rdata")
+library(dplyr)
+library(Seurat)
+library(patchwork)
+#质控#
+head(scRNA1@meta.data)
+#先计算下线粒体基因比例，用小提琴图展示指控前指标。
+scRNA1[["percent.mt"]] <- PercentageFeatureSet(scRNA1, pattern = "^MT-")
+VlnPlot(scRNA1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident", 
+        pt.size = 0)
+#QC
+
+plot1 <- FeatureScatter(scRNA1, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(scRNA1, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+#plot1 + plot2
+dev.off()
+scRNA1<- subset(scRNA1, subset = nFeature_RNA < 7500 & percent.mt < 15& nCount_RNA < 50000)
+dim(scRNA1)   #查看基因数和细胞总数
+#计算红细胞比例，红细胞没有细胞核，没有转录组
+HB.genes <- c("HBA1","HBA2","HBB","HBD","HBE1","HBG1","HBG2","HBM","HBQ1","HBZ")
+HB_m <- match(HB.genes, rownames(scRNA1@assays$RNA)) 
+HB.genes <- rownames(scRNA1@assays$RNA)[HB_m] 
+HB.genes <- HB.genes[!is.na(HB.genes)] 
+scRNA1[["percent.HB"]]<-PercentageFeatureSet(scRNA1, features=HB.genes) 
+col.num <- length(levels(scRNA1@active.ident))
+violin <- VlnPlot(scRNA1,
+                  features = c("percent.HB"), 
+                  cols =rainbow(col.num), 
+                  pt.size = 0.01, #不需要显示点，可以设置pt.size = 0
+                  ncol = 4) +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) 
+violin
+#scRNA1 <- subset(scRNA1, subset = percent.HB < 0.15)
+######################################标准化#############################
+#scRNA1<- SCTransform(scRNA1, vars.to.regress = "percent.mt", verbose = FALSE)
+scRNA1<- NormalizeData(object = scRNA1, normalization.method = "LogNormalize", scale.factor = 10000)
+
+####查找高变基因######
+
+scRNA1 <- FindVariableFeatures(scRNA1, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+#top20 <- head(VariableFeatures(scRNA1), 20)
+
+# plot variable features with and without labels
+#plot1 <- VariableFeaturePlot(scRNA1)
+#plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+#plot1 + plot2
+#dev.off()
+#Scaling the data
+
+all.genes <- rownames(scRNA1)
+scRNA1 <- ScaleData(scRNA1, features = all.genes)
+#PCA
+scRNA1 <- RunPCA(scRNA1, features = VariableFeatures(object = scRNA1), npcs = 30, verbose = FALSE)
+#print(scRNA1[["pca"]], dims = 1:30, nfeatures = 5)  #查看前五个高变基因
+#可视化
+#VizDimLoadings(scRNA1, dims = 1:2, reduction = "pca")
+###细胞分群#######
+
+scRNA1  <- FindNeighbors(scRNA1 , dims = 1:30)
+scRNA1  <- FindClusters(scRNA1 , resolution = 0.9)
+scRNA1  <- RunUMAP(scRNA1 , dims = 1:30)
+scRNA1  <- RunTSNE(scRNA1 , dims = 1:30)
+meta.data=scRNA1@meta.data
+scRNA1@meta.data$samplegroup=substr(scRNA1@meta.data$orig.ident,1,2)
+table(scRNA1@meta.data$orig.ident)
+table(scRNA1@meta.data$samplegroup)
+scRNA1@meta.data$samplegroup=gsub("Ps","Patient",scRNA1@meta.data$samplegroup)
+scRNA1@meta.data$samplegroup=gsub("Co","Healthy",scRNA1@meta.data$samplegroup)
+table(scRNA1@meta.data$samplegroup)
+
+DimPlot(scRNA1, reduction = "umap",group.by = "samplegroup", label = TRUE)
+#save(scRNA1,file="E:/muma/银屑病代谢/GSE151177/processed_data/scRNA1_2.Rdata")
+#按照样本去批次########
+library(harmony)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V3.0","Psoriasis11",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V3.0","Psoriasis12",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V3.0","Psoriasis13",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Control_V2.0","cntl01",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Control_V2.0","cntl02",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Control_V2.0","cntl03",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Control_V2.0","cntl04",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Control_V2.0","cntl05",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis01",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis02",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis03",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis04",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis05",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis06",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis07",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis08",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis09",scRNA1@meta.data$orig.ident)
+scRNA1@meta.data$orig.ident2=gsub("Psoriasis_V2","psoriasis10",scRNA1@meta.data$orig.ident)
+table(scRNA1@meta.data$orig.ident2)
+scRNA2 = scRNA1 %>% RunHarmony("orig.ident2", plot_convergence = TRUE)
+save(scRNA2,file="E:/muma/银屑病代谢/GSE151177/processed_data/scRNA2.Rdata")
+#########SingleR注释################################################
+load("E:/muma/银屑病代谢/GSE151177/processed_data/scRNA2.Rdata")
+table(scRNA2@meta.data$samplegroup)
+genes_to_check =  c( 'CD3D', 'CD3E', 'TRAC', # T cell
+                   #  'CD4','TA','TB',    # CD4 /T
+                   "CD14",  'CD163', 'T6',"CD74" ,"CCR7",#Monocytes and macrophages
+                     'KLRB1',"NKG7","KLRC1",# NK 
+                   "HDC","CPA3",#Mast
+                    "CD40","LY75","ITGAX",#DC
+                     "VWF","PECAM1", "CLDN5",  # Endothelial cells
+                     "MITF", "SOX10", "MLANA","TYR",#Melanocytes
+                     "KRT10", "KRT1",  "KRT14", "KRT5" ,"FABP5",  #Keratinocytes
+                     "DCN","COL1A1",'LUM', #肌成纤维细胞Fibroblast
+                   "SPINK5",#granulosa
+                   "FCGR1A", "FCER1A", 'FCGR2A','FCGR2B','FCGR3',"ITGAM", # Antigen presentation / Ig interacting
+                "KRT16", "KRT75" ,"KRT17","KRT79","KRT37"#Hair follicle
+                   )
+genes_to_check =  c( 'CD3D', 'CD3E',  # T cell
+                     "LYZ",  'AIF1',#macro/DC
+                     'KLRB1',"NKG7","XCL2",# NK 
+                     "VWF","PECAM1", "CLDN5",  # Endothelial cells
+                    "PMEL", "MLANA",#Melanocytes
+                     "KRT1",  "KRT14", "SPINK5", #Keratinocytes
+                     "DCN","COL1A1",'LUM',"COL3A1", #肌成纤维细胞Fibroblast
+          #           "SPINK5",#granulosa
+         #           "CDH19","MPZ",#SWAN
+                    "VHF","KRT6B","SFRP1",#绒毛毛囊细胞
+                   "ECG","PIP","DCD",#内分泌腺细胞
+                   "TPSB2",  "TPSA1","FCER1A",  "HPGD", # Mast cells
+                     "KRT16", "KRT75" ,"KRT17","KRT79","KRT37",#Hair follicle
+                    "CD207","CD1A",#LCs
+                    "SAA1","LHX2",##皮脂腺/外分泌
+                  "S100A8",#MDSC
+        #        "CD207",#langhans
+                "CD1C",#DC
+                "CD68"#Macro
+                  
+                  
+                   #除了高度表达毛囊皮脂腺/外分泌细胞（SAA1，LHX2），成纤维细胞（COL1A1），T细胞（CD2，CD3D），肥大细胞（TPSAB1，TPSB2）和髓样细胞（LYZ）的细胞簇，这些细胞簇被认为是双峰
+)
+genes_to_check =  c("KRT14","KRT5",#上皮细胞
+"CD2","CD3D",#T细胞
+"COL1A1","DCN",#成纤维细胞：
+"LYZ","HLA-DRA",#髓系细胞：
+"RAMP2","VWF",#内皮细胞：
+"CPA3","KIT",#肥大细胞
+"MZB1","CD79A"#B细胞：
+)
+genes_to_check =  c("KRT15","KRT5",#基底角质形成细胞
+                    "KRT1",#棘状角质形成细胞
+                    "FLG","LOR",  #颗粒角质形成细胞
+                   "TOP2A" ,#循环角质形成细胞
+                   "PMEL",#黑色素细胞
+                   "CD3D",#T
+                   'KLRB1',"NKG7","XCL2",# NK 
+                   "CD207","CD68",#Macro/DC
+                    "COL1A1","DCN",#成纤维细胞：
+        #            "LYZ","HLA-DRA",#髓系细胞：
+                    "RAMP2","VWF",#内皮细胞：
+           #         "CPA3","KIT",#肥大细胞
+           #         "MZB1","CD79A",#B细胞
+                   
+                   "VHF","KRT6B","SFRP1"#绒毛毛囊细胞
+                   
+)
+
+ DotPlot(scRNA2 , features = genes_to_check,
+        assay='RNA'  )  + coord_flip()
+#diff.mast = FindAllMarkers(scRNAunknow, test.use = 'MAST')
+# 较慢，4-5min左右
+#all.markers = diff.mast %>% select(gene, everything()) %>% subset(p_val<0.05)
+#top10 = all.markers %>% group_by(cluster) %>% top_n(n = 20, wt = avg_log2FC)
+#top10 = CaseMatch(search = as.vector(top10$gene), match = rownames(scRNAunknow)) 
+#这里选取的是wilcox方法挑选的差异基因
+#plot1 = DoHeatmap(scRNAunknow, features = top10, group.by = "seurat_clusters", group.bar = T, size = 4)
+#结果可以看出cluster间差异还是挺明显的
+new.cluster.ids <- c("0"="HFs", 
+                     "1"="T-cells", 
+                     "2"="KCs_granulosa", 
+                     "3"="T-cells", 
+                     "4"="macro/DC" ,
+                     "5" ="KCs_Spinous/Basal",
+                     "6"="macro/DC",
+                     "7"="macro/DC", 
+                     "8"="T-cells", 
+                     "9"="KCs_Spinous/Basal", 
+                     "10"="Melanocytes" ,
+                     "11"="T-cells",
+                     "12"="NKs",
+                     "13"="NKs",
+                     "14"="Endothelial cells",
+                     "15"="NKs",
+                     "16"="T-cells",
+                     "17"="T-cells",
+                     "18"="KCs_Spinous/Basal", #可能双峰
+                     "19"="KCs_granulosa", 
+                     "20"="macro/DC", 
+                     "21"="Endothelial cells",
+                     "22" ="Fibroblasts",
+                     "23"="macro/DC",
+                     "24"="macro/DC", 
+                     "25"="macro/DC", 
+                     "26"="macro/DC", 
+                     "27"="macro/DC",
+                     "28"="macro/DC"
+)
+table(scRNA2@meta.data$seurat_clusters)
+#scRNAunknow=scRNA2[, scRNA2@meta.data$seurat_clusters %in% c( "12","17","22" ,"26","27","28","29","30")]
+#table(scRNAunknow@active.ident)
+#DotPlot(scRNAunknow , features = genes_to_check,
+#        assay='RNA'  )  + coord_flip()
+
+scRNA3 <- RenameIdents(scRNA2, new.cluster.ids)                        
+scRNA3$celltype <-scRNA3@active.ident
+table(scRNA3$celltype)
+p=DotPlot(scRNA3 , features = genes_to_check,
+        assay='RNA'  )  + coord_flip() +
+  
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+p + scale_color_gradient(low='pink',high='red') +theme_bw()
+p+scale_color_gradient(low = "cyan",high = "red")
+p=DimPlot(scRNA3, label = T,pt.size = 1,group.by = "celltype") 
+p + scale_color_igv()
+library(export)
+graph2pdf(file="E:/muma/GSE151177/celltype_UMAP.pdf",width=7,height=7)
+DimPlot(scRNA3, label = T,pt.size = 1,group.by = "samplegroup")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/samplegroup_UMAP.pdf",width=7,height=7)
+save(scRNA3,file="E:/muma/GSE151177/scRNA3.Rdata")
+scRNA4= scRNA3[, scRNA3$samplegroup %in% c( "Patient" )]
+#scRNA4= scRNA3[, !scRNA3$orig.ident %in% c( "Psoriasis02F"
+#,"Psoriasis03F", "Psoriasis04F","Psoriasis06F")]
+
+scRNA4<- JoinLayers(scRNA4)
+table(scRNA4$celltype)
+save(scRNA4,file="E:/muma/GSE151177/scRNA4.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+scRNA5=scRNA4
+####把H6PD+ALODA计算，分为高低组，即为表型数据###################
+# risk score计算######
+library(ggpubr)
+geneCoef=read.csv("E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/LASSO筛出的最终模型.csv")
+Gene=c("H6PD","ALDOA")
+geneCoef=geneCoef[geneCoef$Gene%in%Gene,]
+actCoef=geneCoef$Coef
+actCoef=as.numeric(actCoef)
+
+myFun=function(x){crossprod(as.numeric(x),actCoef)}
+########提取病人样本##################
+library(data.table)
+library(limma)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+group=group[group$group==c("PP"),]
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+exp=exp[,colnames(exp)%in%group$title]
+trainFinalGeneExp=exp
+trainFinalGeneExp=exp[rownames(exp)%in%Gene,]
+trainFinalGeneExp=as.data.frame(t(trainFinalGeneExp))
+trainFinalGeneExp<- trainFinalGeneExp[,c(2,1)]
+trainScore=apply(trainFinalGeneExp,1,myFun)
+#risk=as.vector(ifelse(trainScore>quantile(trainScore,.68),"high",
+#                  ifelse(trainScore>quantile(trainScore,.32),"median",
+#                           "low")))
+risk=as.vector(ifelse(trainScore>quantile(trainScore,.75),"high",
+                        "low"))
+
+#risk=as.vector(ifelse(trainScore>=median(trainScore),"high","low"))
+
+table(risk)
+sample=as.data.frame(group$X)
+colnames(sample)=c("sample")
+sample$riskscore=trainScore
+sample$risk=risk
+sample$risknum=ifelse(sample$risk==c("low"),"0","1")
+sample$title=group$title
+sample=sample[!sample$risk==c("median"),]
+
+###high_low两组的差异分析#############
+color <-c("#5CB85C","#337AB7")
+#color <- getPalette(colourCount)
+my_comparisons <- list(c("high","low"))
+
+pb1<-ggboxplot(sample,
+               x="risk",
+               y="riskscore",
+               color="black",
+               fill="risk",
+               #  add = "jitter",
+               bxp.errorbar.width = 0.8,
+               width = 0.5,
+               bxp.errorbar=T,
+               size=0.2,
+               font.label = list(size=30), 
+               palette = color)+
+  theme(panel.background =element_blank())
+pb1 
+pb1<-pb1+theme(axis.line=element_line(colour="black"))+theme(axis.title.x = element_blank())
+pb1<-pb1+theme(axis.title.y = element_blank())+theme(axis.text.x = element_text(size = 15,angle = 45,vjust = 1,hjust = 1))
+#pb1<-pb1+theme(axis.text.y = element_text(size = 15))+ggtitle(gc[i])+theme(plot.title = element_text(hjust = 0.5,size=15,face="bold"))
+pb1<-pb1+theme(legend.position = "NA")
+pb1+
+  geom_signif(sample,mapping = aes(x=risk, y=riskscore),
+              comparisons = my_comparisons,
+              test = "t.test",
+              step_increase = 0.2,
+              tip_length = 0,
+              textsize = 6,
+              size = 1,
+              map_signif_level = T)
+library(export)
+graph2pdf(file="E:/muma/GSE151177/PPPscore_bulk_箱线图.pdf",width=7,height=7)
+
+save(sample,file="E:/muma/GSE151177/pheno.Rdata")
+save(exp,file="E:/muma/GSE151177/exp_bulk.Rdata")
+phenotype <-as.numeric(sample$risknum)
+names(phenotype) <-sample$title
+tag <- c('high', 'low')
+exp=exp[,colnames(exp)%in%sample$title]
+bulk_dataset=as.matrix(exp, dimnames = list( row.names(exp), colnames(exp)))
+#load("E:/muma/GSE151177/scRNA4.Rdata")
+scRNA4=scRNA5
+#########修改scissor函数############
+Scissor <- function(bulk_dataset, sc_dataset, phenotype, tag = NULL,
+                    alpha = NULL, cutoff = 0.1, family = c("gaussian","binomial","cox"),
+                    Save_file = "Scissor_inputs.RData", Load_file = NULL){
+  library(Seurat)
+  library(Matrix)
+  library(preprocessCore)
+  
+  
+  if (is.null(Load_file)){
+    common <- intersect(rownames(bulk_dataset), rownames(sc_dataset))
+    if (length(common) == 0) {
+      stop("There is no common genes between the given single-cell and bulk samples.")
+    }
+    if (class(sc_dataset) == "Seurat"){
+      sc_exprs <- as.matrix(sc_dataset[["RNA"]]$counts)
+      network  <- as.matrix(sc_dataset@graphs$RNA_snn)
+    }else{
+      sc_exprs <- as.matrix(sc_dataset)
+      Seurat_tmp <- CreateSeuratObject(sc_dataset)
+      Seurat_tmp <- FindVariableFeatures(Seurat_tmp, selection.method = "vst", verbose = F)
+      Seurat_tmp <- ScaleData(Seurat_tmp, verbose = F)
+      Seurat_tmp <- RunPCA(Seurat_tmp, features = VariableFeatures(Seurat_tmp), verbose = F)
+      Seurat_tmp <- FindNeighbors(Seurat_tmp, dims = 1:10, verbose = F)
+      network  <- as.matrix(Seurat_tmp@graphs$RNA_snn)
+    }
+    diag(network) <- 0
+    network[which(network != 0)] <- 1
+    
+    dataset0 <- cbind(bulk_dataset[common,], sc_exprs[common,])         # Dataset before quantile normalization.
+    dataset1 <- normalize.quantiles(dataset0)                           # Dataset after  quantile normalization.
+    rownames(dataset1) <- rownames(dataset0)
+    colnames(dataset1) <- colnames(dataset0)
+    
+    Expression_bulk <- dataset1[,1:ncol(bulk_dataset)]
+    Expression_cell <- dataset1[,(ncol(bulk_dataset) + 1):ncol(dataset1)]
+    X <- cor(Expression_bulk, Expression_cell)
+    
+    quality_check <- quantile(X)
+    print("|**************************************************|")
+    print("Performing quality-check for the correlations")
+    print("The five-number summary of correlations:")
+    print(quality_check)
+    print("|**************************************************|")
+    if (quality_check[3] < 0.01){
+      warning("The median correlation between the single-cell and bulk samples is relatively low.")
+    }
+    if (family == "binomial"){
+      Y <- as.numeric(phenotype)
+      z <- table(Y)
+      if (length(z) != length(tag)){
+        stop("The length differs between tags and phenotypes. Please check Scissor inputs and selected regression type.")
+      }else{
+        print(sprintf("Current phenotype contains %d %s and %d %s samples.", z[1], tag[1], z[2], tag[2]))
+        print("Perform logistic regression on the given phenotypes:")
+      }
+    }
+    if (family == "gaussian"){
+      Y <- as.numeric(phenotype)
+      z <- table(Y)
+      if (length(z) != length(tag)){
+        stop("The length differs between tags and phenotypes. Please check Scissor inputs and selected regression type.")
+      }else{
+        tmp <- paste(z, tag)
+        print(paste0("Current phenotype contains ", paste(tmp[1:(length(z)-1)], collapse = ", "), ", and ", tmp[length(z)], " samples."))
+        print("Perform linear regression on the given phenotypes:")
+      }
+    }
+    if (family == "cox"){
+      Y <- as.matrix(phenotype)
+      if (ncol(Y) != 2){
+        stop("The size of survival data is wrong. Please check Scissor inputs and selected regression type.")
+      }else{
+        print("Perform cox regression on the given clinical outcomes:")
+      }
+    }
+    save(X, Y, network, Expression_bulk, Expression_cell, file = Save_file)
+  }else{
+    load(Load_file)
+  }
+  
+  if (is.null(alpha)){
+    alpha <- c(0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+  }
+  for (i in 1:length(alpha)){
+    set.seed(123)
+    fit0 <- APML1(X, Y, family = family, penalty = "Net", alpha = alpha[i], Omega = network, nlambda = 100, nfolds = min(10,nrow(X)))
+    fit1 <- APML1(X, Y, family = family, penalty = "Net", alpha = alpha[i], Omega = network, lambda = fit0$lambda.min)
+    if (family == "binomial"){
+      Coefs <- as.numeric(fit1$Beta[2:(ncol(X)+1)])
+    }else{
+      Coefs <- as.numeric(fit1$Beta)
+    }
+    Cell1 <- colnames(X)[which(Coefs > 0)]
+    Cell2 <- colnames(X)[which(Coefs < 0)]
+    percentage <- (length(Cell1) + length(Cell2)) / ncol(X)
+    print(sprintf("alpha = %s", alpha[i]))
+    print(sprintf("Scissor identified %d Scissor+ cells and %d Scissor- cells.", length(Cell1), length(Cell2)))
+    print(sprintf("The percentage of selected cell is: %s%%", formatC(percentage*100, format = 'f', digits = 3)))
+    
+    if (percentage < cutoff){
+      break
+    }
+    cat("\n")
+  }
+  print("|**************************************************|")
+  
+  return(list(para = list(alpha = alpha[i], lambda = fit0$lambda.min, family = family),
+              Coefs = Coefs,
+              Scissor_pos = Cell1,
+              Scissor_neg = Cell2))
+}
+
+
+
+library(Scissor)
+#sc_dataset=scRNA4@assays[["RNA"]]@layers[["counts"]]
+sc_dataset3=scRNA4[["RNA"]]$counts
+row.names(sc_dataset3)
+sc_dataset2=as.matrix(sc_dataset3, dimnames = list( row.names(sc_dataset3), colnames(sc_dataset3)) )
+#a=as.data.frame(row.names(sc_dataset2))
+#colnames(a)=c("gene")
+#b=as.data.frame(row.names(exp))
+#colnames(b)=c("gene")
+#c=merge(a,b,by="gene")
+#bulk_dataset=bulk_dataset[row.names(bulk_dataset)%in%c$gene,]
+#bulk_dataset=bulk_dataset[row.names(bulk_dataset)%in%c$gene,]
+
+#sc_dataset2=sc_dataset2[row.names(sc_dataset2)%in%c$gene,]
+sc_dataset <- Seurat_preprocessing(sc_dataset2, verbose = T)
+class(sc_dataset)
+infos4 <- Scissor(bulk_dataset, sc_dataset, phenotype, tag = tag, alpha =  0.003,#NULL
+                  family = "binomial", Save_file = "Scissor_pos_negscore.RData")
+#####################Scissor 总共识别出 414 个与 高评分相关的 Scissor+ 细胞和 318 个与低评分相关的 Scissor- 细胞。我们可以使用 UMAP 技术可视化这些选定的细胞######################################
+Scissor_select <- rep(0, ncol(sc_dataset))
+names(Scissor_select) <- colnames(sc_dataset)
+Scissor_select[infos4$Scissor_pos] <- 1
+Scissor_select[infos4$Scissor_neg] <- 2
+sc_dataset <- AddMetaData(sc_dataset, metadata = Scissor_select, col.name = "scissor")
+DimPlot(sc_dataset, reduction = 'umap', group.by = 'scissor',
+        cols = c('grey','indianred1','royalblue'), pt.size = 1.2, order = c(2,1))
+graph2pdf(file="E:/muma/GSE151177/Scissor_umap.pdf",width=7,height=7)
+
+library(export)
+sc_dataset@active.ident=as.factor(Scissor_select)
+VlnPlot(sc_dataset,features = c("H6PD","ALDOA"),pt.size = 0,ncol = 1 )
+graph2pdf(file="E:/muma/GSE151177/Scissor_H6PD_ALDOA小提琴图.pdf",width=7,height=7)
+
+dev.off()
+save(Scissor_select ,file="E:/muma/GSE151177/Scissor_select.Rdata")
+save(infos4 ,file="E:/muma/GSE151177/infos4.Rdata")
+save(sc_dataset ,file="E:/muma/GSE151177/sc_dataset.Rdata")
+##############堆叠柱状图#################
+##提取scissor+cell
+scissor_pos_cell=infos4$Scissor_pos
+scissor_pos_cell=as.data.frame(scissor_pos_cell)
+rownames(scissor_pos_cell)=scissor_pos_cell$scissor_pos_cell
+meta.data=scRNA4@meta.data
+
+scissor_pos_cell_meta=merge(meta.data,scissor_pos_cell,by="row.names")
+table(scissor_pos_cell_meta$celltype)
+#table(scissor_neg_cell_meta$celltype)
+#load("E:/muma/银屑病代谢/GSE151177/processed_data/scRNA4.Rdata")
+load("E:/muma/GSE151177/infos4.Rdata")
+load("E:/muma/GSE151177/Scissor_select.Rdata")
+load("E:/muma/GSE151177/sc_dataset.Rdata")
+scissor_neg_cell=infos4[["Scissor_neg"]]
+scissor_neg_cell=as.data.frame(scissor_neg_cell)
+scissor_pos_cell=infos4[["Scissor_pos"]]
+scissor_pos_cell=as.data.frame(scissor_pos_cell)
+
+rownames(scissor_neg_cell)=scissor_neg_cell$scissor_neg_cell
+rownames(scissor_pos_cell)=scissor_pos_cell$scissor_pos_cell
+
+meta.data=scRNA4@meta.data
+scissor_neg_cell_meta=merge(meta.data,scissor_neg_cell,by="row.names")
+scissor_pos_cell_meta=merge(meta.data,scissor_pos_cell,by="row.names")
+
+table(scissor_neg_cell_meta$celltype)
+scissor_neg_cell_meta$scissor=c("neg")
+scissor_pos_cell_meta$scissor=c("pos")
+scissor_pos_cell_meta=scissor_pos_cell_meta[,-13]
+scissor_neg_cell_meta=scissor_neg_cell_meta[,-13]
+
+#######画堆叠柱状图################
+library(plyr)
+#开始绘图
+library(RColorBrewer)
+colourCount = 12
+
+getPalette = colorRampPalette(brewer.pal(12, "Set1"))
+
+celltype_colors <- getPalette(colourCount)
+
+#提取样本和细胞数据，并且进行长宽数据转换
+
+plotC <- as.data.frame(table(scissor_neg_cell_meta$celltype) )
+plotC$scissor="neg"
+plotD<- as.data.frame( table(scissor_pos_cell_meta$celltype) )
+plotD$scissor="pos"
+plotdata=rbind(plotC,plotD)
+pC2 <- ggplot(data = plotdata, aes(x = scissor, y = Freq, fill = Var1)) +
+  
+  geom_bar(stat = "identity", width=0.8,aes(group= Var1),position="fill")+
+  
+  scale_fill_manual(values=celltype_colors) +
+  
+  theme_bw()+
+  
+  theme(panel.grid =element_blank()) +
+  
+  labs(x="",y="Cell proportion")+
+  
+  #scale_y_continuous(labels = percent)+ ####用来将y轴移动位置
+  
+  theme(axis.text = element_text(size=12, colour = "black"))+
+  
+  theme(axis.title.y = element_text(size=12, colour = "black"))+
+  
+  theme(panel.border = element_rect(size = 1, linetype = "solid", colour = "black"))+
+  
+  theme(axis.text.x = element_text(angle = 45,hjust = 0.8, vjust = 0.6))#让横轴上的标签倾斜45度
+pC2 
+library(export)
+graph2pdf(file="E:/muma/GSE151177/Scissor_堆叠柱状图.pdf",width=7,height=7)
+###############计算cellchat#############################################################
+#load("E:/muma/GSE151177/scRNA4.Rdata")
+scRNA4=scRNA5
+data.input = scRNA4[["RNA"]]$counts# normalized data matrix
+meta = scRNA4@meta.data # a dataframe with rownames containing cell mata data
+scissorgroup=rbind(scissor_neg_cell_meta,scissor_pos_cell_meta)
+###scissor分组#########################
+meta=meta[row.names(meta)%in%scissorgroup$Row.names,]
+
+row.names(scissorgroup)=scissorgroup$Row.names
+meta=merge(meta,scissorgroup,by="row.names")
+table(meta$scissor)
+data.input=data.input[,colnames(data.input)%in%scissorgroup$Row.names]
+meta_pos=meta[meta$scissor==c("pos"),]
+data.input_pos=data.input[,colnames(data.input)%in%meta_pos$Row.names]
+meta_neg=meta[meta$scissor==c("neg"),]
+data.input_neg=data.input[,colnames(data.input)%in%meta_neg$Row.names]
+#data.input_neg=as.data.frame(t(data.input_neg))
+colnames(data.input_neg)
+row.names(data.input_neg)
+data.input_neg=na.omit(data.input_neg)
+data.input_neg=Seurat_preprocessing(data.input_neg, verbose = F)
+save(data.input_neg,file="E:/muma/GSE151177/data.input_neg.Rdata")
+
+library(CellChat)
+cellchat_neg <- createCellChat(object = data.input_neg, meta = meta_neg, group.by = "celltype.y")
+save(cellchat_neg ,file="E:/muma/GSE151177/cellchat_neg_dataset.Rdata")
+table(meta_neg$celltype.x)
+meta_neg$celltype.x=as.character(meta_neg$celltype.x)
+table(meta_neg$celltype.x)
+
+cellchat_neg <- addMeta(cellchat_neg, meta = meta_neg)
+cellchat_neg <- setIdent(cellchat_neg, ident.use = "celltype.x") # set "labels" as default cell identity
+levels(cellchat_neg@idents) # show factor levels of the cell labels
+groupSize <- as.numeric(table(cellchat_neg@idents)) # number of cells in each cell group
+CellChatDB <- CellChatDB.human # use CellChatDB.mouse if running on mouse data
+showDatabaseCategory(CellChatDB)
+unique(CellChatDB$interaction$annotation)
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling") # use Secreted Signaling
+cellchat_neg@DB <- CellChatDB.use
+library(future)
+library(future.apply)
+# subset the expression data of signaling genes for saving computation cost
+cellchat_neg <- subsetData(cellchat_neg) # This step is necessary even if using the whole database
+cellchat_neg <- identifyOverExpressedGenes(cellchat_neg)
+cellchat_neg <- identifyOverExpressedInteractions(cellchat_neg)
+table(cellchat_neg@idents)
+#cellchat_neg <- projectData(cellchat_neg, PPI.human)
+cellchat_neg@idents = droplevels(cellchat_neg@idents, exclude = setdiff(levels(cellchat_neg@idents),unique(cellchat_neg@idents)))
+#cellchat_neg@idents=as.factor(cellchat_neg@idents)
+cellchat_neg <- computeCommunProb(cellchat_neg, raw.use = TRUE)
+cellchat_neg <- filterCommunication(cellchat_neg, min.cells = 1)
+library(CellChat)
+cellchat_neg <- computeCommunProbPathway(cellchat_neg)
+cellchat_neg <- aggregateNet(cellchat_neg)
+cellchat_neg <- netAnalysis_computeCentrality(cellchat_neg)
+groupSizelow <- as.numeric(table(cellchat_neg@idents))
+
+
+data.input = scRNA4[["RNA"]]$counts# normalized data matrix
+meta = scRNA4@meta.data # a dataframe with rownames containing cell mata data
+scissorgroup=rbind(scissor_neg_cell_meta,scissor_pos_cell_meta)
+meta=meta[row.names(meta)%in%scissorgroup$Row.names,]
+row.names(scissorgroup)=scissorgroup$Row.names
+meta=merge(meta,scissorgroup,by="row.names")
+table(meta$scissor)
+data.input=data.input[,colnames(data.input)%in%scissorgroup$Row.names]
+meta_pos=meta[meta$scissor==c("pos"),]
+data.input_pos=data.input[,colnames(data.input)%in%meta_pos$Row.names]
+
+#data.input_pos=as.data.frame(t(data.input_pos))
+
+#data.input_pos=na.omit(data.input_pos)
+colnames(data.input_pos)
+row.names(data.input_pos)
+meta_pos$celltype.x=as.character(meta_pos$celltype.x)
+table(meta_pos$celltype.x)
+
+data.input_pos=Seurat_preprocessing(data.input_pos, verbose = F)
+save(data.input_pos,file="E:/muma/GSE151177/data.input_pos.Rdata")
+cellchat_pos <- createCellChat(object = data.input_pos, meta = meta_pos, group.by = "celltype.y")
+save(cellchat_pos ,file="E:/muma/GSE151177/cellchat_pos_dataset.Rdata")
+
+cellchat_pos <- addMeta(cellchat_pos, meta = meta_pos)
+cellchat_pos <- setIdent(cellchat_pos, ident.use = "celltype.y") # set "labels" as default cell identity
+levels(cellchat_pos@idents) # show factor levels of the cell labels
+groupSize <- as.numeric(table(cellchat_pos@idents)) # number of cells in each cell group
+CellChatDB <- CellChatDB.human # use CellChatDB.mouse if running on mouse data
+showDatabaseCategory(CellChatDB)
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling") # use Secreted Signaling
+cellchat_pos@DB <- CellChatDB.use
+library(future)
+library(future.apply)
+# subset the expression data of signaling genes for saving computation cost
+cellchat_pos <- subsetData(cellchat_pos) # This step is necessary even if using the whole database
+cellchat_pos <- identifyOverExpressedGenes(cellchat_pos)
+cellchat_pos <- identifyOverExpressedInteractions(cellchat_pos)
+
+#cellchat_pos <- projectData(cellchat_pos, PPI.human)
+cellchat_pos@idents = droplevels(cellchat_pos@idents, exclude = setdiff(levels(cellchat_pos@idents),unique(cellchat_pos@idents)))
+cellchat_pos <- computeCommunProb(cellchat_pos)
+cellchat_pos <- filterCommunication(cellchat_pos, min.cells = 1)
+cellchat_pos <- computeCommunProbPathway(cellchat_pos)
+cellchat_pos <- aggregateNet(cellchat_pos)
+cellchat_pos <- netAnalysis_computeCentrality(cellchat_pos)
+groupSizehigh <- as.numeric(table(cellchat_pos@idents))
+######## the possible reason is that the number of cell types between two groups is different##############
+levels(cellchat_neg@idents)
+
+levels(cellchat_pos@idents)
+identical(levels(cellchat_neg@idents),levels(cellchat_pos@idents))
+object.list <- list(pos = cellchat_pos, neg = cellchat_neg )
+cellchat <- mergeCellChat(object.list, add.names = names(object.list))
+cellchat
+library(CellChat)
+cellchat <- updateCellChat(cellchat)
+############图A比较交互总数和交互强度既是高危组和低危组中细胞通讯数量的差异##############
+#为了回答细胞-细胞通信是否增强的问题，CellChat比较了来自不同生物条件的细胞通信网络的相互作用数量和强度。
+
+gg1 <- compareInteractions(cellchat, show.legend = F, group = c(1,2))
+gg2 <- compareInteractions(cellchat, show.legend = F, group = c(1,2), measure = "weight")
+gg1 + gg2
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Ascissor两组通讯差异图.pdf",width=7,height=7)
+
+dev.off()
+library(Scissor)
+library(ggplot2)
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_diffInteraction(cellchat, weight.scale = T)
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor两组间细胞通信网络中交互或交互强度的差异数-1.pdf",width=7,height=7)
+
+netVisual_diffInteraction(cellchat, weight.scale = T, measure = "weight")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor两组间细胞通信网络中交互或交互强度的差异数-2.pdf",width=7,height=7)
+weight.max <- getMaxWeight(object.list, attribute = c("idents","count"))
+par(mfrow = c(1,2), xpd=TRUE)
+for (i in 1:length(object.list)) {
+  netVisual_circle(object.list[[i]]@net$count, weight.scale = T, label.edge= F, edge.weight.max = weight.max[2], edge.width.max = 12, title.name = paste0("Number of interactions - ", names(object.list)[i]))
+}
+graph2pdf(file="E:/muma/GSE151177/scissor两组间细胞通信网络中交互或交互强度的差异数-3.pdf",width=7,height=7)
+
+#我们还可以使用热图在更大的细节中显示交互的差异数或交互强度。
+#顶部彩色条形图表示热图（传入信号）中显示的列值的总和。右边的彩色条形图表示一行值（传出信号）的总和。
+#在色条中红色或蓝色表示第二个数据集中与第一个数据集相比增加或[减少]信号。
+gg1 <- netVisual_heatmap(cellchat)
+#> Do heatmap based on a merged object
+gg2 <- netVisual_heatmap(cellchat, measure = "weight")
+#> Do heatmap based on a merged object
+gg1 + gg2
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Ascissor两组间不同细胞亚群中传出信号通路强度的热图.pdf",width=7,height=7)
+#######################图B高危组和低危组中各种信号通路的数量和百分比。##############################3
+gg1 <- rankNet(cellchat, mode = "comparison", stacked = T, do.stat = TRUE)
+gg2 <- rankNet(cellchat, mode = "comparison", stacked = F, do.stat = TRUE)
+gg1 + gg2
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Bscissor两组间富集信号通路差异条形图.pdf",width=7,height=7)
+#######################图C高危组和低危组中不同细胞亚群中传出信号通路强度的热图。##############################3
+#总体信号通路水平热图
+library(ComplexHeatmap)
+
+ht5= netAnalysis_signalingRole_heatmap(object.list[[i]],
+                                       
+                                       pattern= "all", #总体
+                                       
+                                       signaling= pathway.union,
+                                       
+                                       title= names(object.list)[i],
+                                       
+                                       width= 5, height = 6,
+                                       
+                                       color.heatmap = "OrRd")
+
+ht6= netAnalysis_signalingRole_heatmap(object.list[[i+1]],
+                                       
+                                       pattern= "all", #总体
+                                       
+                                       signaling= pathway.union,
+                                       
+                                       title= names(object.list)[i+1],
+                                       
+                                       width= 5, height = 6,
+                                       
+                                       color.heatmap = "OrRd")
+
+draw(ht5 + ht6, ht_gap = unit(0.5, "cm"))
+#传出信号通路水平热图
+i= 1
+library(patchwork)
+pathway.union <- union(object.list[[i]]@netP$pathways,
+                       
+                       object.list[[i+1]]@netP$pathways)
+
+pathway.union
+
+ht1= netAnalysis_signalingRole_heatmap(object.list[[i]],
+                                       
+                                       pattern= "outgoing", #传出
+                                       
+                                       signaling= pathway.union,
+                                       
+                                       title= names(object.list)[i],
+                                       
+                                       width= 5,
+                                       
+                                       height= 6)
+
+ht2= netAnalysis_signalingRole_heatmap(object.list[[i+1]],
+                                       
+                                       pattern= "outgoing", #传出
+                                       
+                                       signaling= pathway.union,
+                                       
+                                       title= names(object.list)[i+1],
+                                       
+                                       width= 5,
+                                       
+                                       height= 6)
+
+draw(ht1 + ht2, ht_gap = unit(0.5, "cm"))
+
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Cscissor两组间传出信号通路强度的热图.pdf",width=7,height=7)
+#######################图D高危组和低危组中不同细胞亚群不同细胞群在传出和传入信号相互作用强度中的分布散点图。##############################3
+num.link <- sapply(object.list, function(x) {rowSums(x@net$count) + colSums(x@net$count)-diag(x@net$count)})
+
+weight.MinMax <- c(min(num.link), max(num.link)) 
+# 控制不同数据集中的气泡大小
+gg <- list()
+for (i in 1:length(object.list)) {
+  gg[[i]] <- netAnalysis_signalingRole_scatter(object.list[[i]], title = names(object.list)[i], weight.MinMax = weight.MinMax)
+}
+#从所有信号通路分析聚合细胞-细胞通信网络的信号作用
+patchwork::wrap_plots(plots = gg)
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Dscissor两组间传出信号通路强度的散点图.pdf",width=7,height=7)
+
+##########图E总配受体对概率差异气泡图
+
+levels(cellchat@idents$joint) #查看细胞亚群
+
+netVisual_bubble(cellchat,
+                 
+                 sources.use = 4,
+                 
+                 targets.use = c(5:12),
+                 
+                 comparison= c(1, 2),
+                 
+                 angle.x = 45)
+library(export)
+graph2pdf(file="E:/muma/GSE151177/图Escissor两组间总配受体对概率差异气泡图.pdf",width=7,height=7)
+
+#######################negandpos各细胞类型score差异小提琴图###################
+scissormeata=rbind(scissor_neg_cell_meta,scissor_pos_cell_meta)
+save(scissormeata ,file="E:/muma/GSE151177/scissormeata.Rdata")
+#########计算score################
+geneCoef=read.csv("E:/muma/银屑病代谢/图1/图一之三种机器学习算法构建诊断模型/LASSO/LASSO筛出的最终模型.csv")
+Gene=c("H6PD","ALDOA")
+geneCoef=geneCoef[geneCoef$Gene%in%Gene,]
+actCoef=geneCoef$Coef
+actCoef=as.numeric(actCoef)
+
+myFun=function(x){crossprod(as.numeric(x),actCoef)}
+
+load("E:/muma/GSE151177/data.input_neg.Rdata")
+load("E:/muma/GSE151177/data.input_pos.Rdata")
+load("E:/muma/GSE151177/scissormeata.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+table(scRNA4$celltype)
+scRNA_scissor=subset(x = scRNA4, cells = scissormeata$Row.names)
+scRNA6= scRNA_scissor[, scRNA_scissor$celltype %in% c( "HFs" )]
+scRNA7= scRNA_scissor[, scRNA_scissor$celltype %in% c( "T-cells" )]
+scRNA8= scRNA_scissor[, scRNA_scissor$celltype %in% c( "KCs_granulosa" )]
+#scRNA9= scRNA_scissor[, scRNA_scissor$celltype %in% c( "Epithelial cells" )]
+scRNA10= scRNA_scissor[, scRNA_scissor$celltype %in% c( "macro/DC" )]
+scRNA11= scRNA_scissor[, scRNA_scissor$celltype %in% c( "KCs_Spinous/Basal" )]
+scRNA12= scRNA_scissor[, scRNA_scissor$celltype %in% c( "Melanocytes" )]
+scRNA13= scRNA_scissor[, scRNA_scissor$celltype %in% c( "NKs" )]
+scRNA14= scRNA_scissor[, scRNA_scissor$celltype %in% c( "Endothelial cells" )]
+scRNA15= scRNA_scissor[, scRNA_scissor$celltype %in% c( "Fibroblasts" )]
+
+table(scRNA_scissor$celltype)
+data.input_HFs = scRNA6[["RNA"]]$scale.data# normalized data matrix
+data.input_T = scRNA7[["RNA"]]$scale.data# normalized data matrix
+data.input_KCs_granulosa = scRNA8[["RNA"]]$scale.data# normalized data matrix
+#data.input_Ep = scRNA9[["RNA"]]$scale.data# normalized data matrix
+data.input_macro_DC = scRNA10[["RNA"]]$scale.data# normalized data matrix
+data.input_KCs_Spinous_Basal = scRNA11[["RNA"]]$scale.data# normalized data matrix
+data.input_Melanocytes = scRNA12[["RNA"]]$scale.data# normalized data matrix
+data.input_NKs = scRNA13[["RNA"]]$scale.data# normalized data matrix
+data.input_Endo = scRNA14[["RNA"]]$scale.data# normalized data matrix
+data.input_Fibroblasts = scRNA15[["RNA"]]$scale.data# normalized data matrix
+
+exp_HFs=data.input_HFs
+trainFinalGeneExp_HFs=exp_HFs
+trainFinalGeneExp_HFs=exp_HFs[rownames(exp_HFs)%in%Gene,]
+trainFinalGeneExp_HFs=as.data.frame(t(trainFinalGeneExp_HFs))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_HFs=apply(trainFinalGeneExp_HFs,1,myFun)
+
+exp_T=data.input_T
+trainFinalGeneExp_T=exp_T
+trainFinalGeneExp_T=exp_T[rownames(exp_T)%in%Gene,]
+trainFinalGeneExp_T=as.data.frame(t(trainFinalGeneExp_T))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_T=apply(trainFinalGeneExp_T,1,myFun)
+
+exp_KCs_granulosa=data.input_KCs_granulosa
+trainFinalGeneExp_KCs_granulosa=exp_KCs_granulosa
+trainFinalGeneExp_KCs_granulosa=exp_KCs_granulosa[rownames(exp_KCs_granulosa)%in%Gene,]
+trainFinalGeneExp_KCs_granulosa=as.data.frame(t(trainFinalGeneExp_KCs_granulosa))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_KCs_granulosa=apply(trainFinalGeneExp_KCs_granulosa,1,myFun)
+
+
+exp_macro_DC=data.input_macro_DC
+trainFinalGeneExp_macro_DC=exp_macro_DC
+trainFinalGeneExp_macro_DC=exp_macro_DC[rownames(exp_macro_DC)%in%Gene,]
+trainFinalGeneExp_macro_DC=as.data.frame(t(trainFinalGeneExp_macro_DC))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_macro_DC=apply(trainFinalGeneExp_macro_DC,1,myFun)
+
+#exp_Ep=data.input_Ep
+#trainFinalGeneExp_Ep=exp_Ep
+#trainFinalGeneExp_Ep=exp_Ep[rownames(exp_Ep)%in%Gene,]
+#trainFinalGeneExp_Ep=as.data.frame(t(trainFinalGeneExp_Ep))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+#trainScore_Ep=apply(trainFinalGeneExp_Ep,1,myFun)
+
+exp_KCs_Spinous_Basal=data.input_KCs_Spinous_Basal
+trainFinalGeneExp_KCs_Spinous_Basal=exp_KCs_Spinous_Basal
+trainFinalGeneExp_KCs_Spinous_Basal=exp_KCs_Spinous_Basal[rownames(exp_KCs_Spinous_Basal)%in%Gene,]
+trainFinalGeneExp_KCs_Spinous_Basal=as.data.frame(t(trainFinalGeneExp_KCs_Spinous_Basal))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_KCs_Spinous_Basal=apply(trainFinalGeneExp_KCs_Spinous_Basal,1,myFun)
+
+
+exp_NKs=data.input_NKs
+trainFinalGeneExp_NKs=exp_NKs
+trainFinalGeneExp_NKs=exp_NKs[rownames(exp_NKs)%in%Gene,]
+trainFinalGeneExp_NKs=as.data.frame(t(trainFinalGeneExp_NKs))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_NKs=apply(trainFinalGeneExp_NKs,1,myFun)
+
+exp_Melanocytes=data.input_Melanocytes
+trainFinalGeneExp_Melanocytes=exp_Melanocytes
+trainFinalGeneExp_Melanocytes=exp_Melanocytes[rownames(exp_Melanocytes)%in%Gene,]
+trainFinalGeneExp_Melanocytes=as.data.frame(t(trainFinalGeneExp_Melanocytes))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_Melanocytes=apply(trainFinalGeneExp_Melanocytes,1,myFun)
+
+
+exp_Endo=data.input_Endo
+trainFinalGeneExp_Endo=exp_Endo
+trainFinalGeneExp_Endo=exp_Endo[rownames(exp_Endo)%in%Gene,]
+trainFinalGeneExp_Endo=as.data.frame(t(trainFinalGeneExp_Endo))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_Endo=apply(trainFinalGeneExp_Endo,1,myFun)
+
+
+exp_Fibroblasts=data.input_Fibroblasts
+trainFinalGeneExp_Fibroblasts=exp_Fibroblasts
+trainFinalGeneExp_Fibroblasts=exp_Fibroblasts[rownames(exp_Fibroblasts)%in%Gene,]
+trainFinalGeneExp_Fibroblasts=as.data.frame(t(trainFinalGeneExp_Fibroblasts))
+#trainFinalGeneExp_T<- trainFinalGeneExp_T[,c(2,1)]
+trainScore_Fibroblasts=apply(trainFinalGeneExp_Fibroblasts,1,myFun)
+
+trainScore_T=as.data.frame(trainScore_T)
+colnames(trainScore_T)="Score"
+trainScore_T$group="T-cells"
+
+trainScore_HFs=as.data.frame(trainScore_HFs)
+colnames(trainScore_HFs)="Score"
+trainScore_HFs$group="HFs"
+
+trainScore_macro_DC=as.data.frame(trainScore_macro_DC)
+colnames(trainScore_macro_DC)="Score"
+trainScore_macro_DC$group="macro_DC"
+
+
+trainScore_KCs_granulosa=as.data.frame(trainScore_KCs_granulosa)
+colnames(trainScore_KCs_granulosa)="Score"
+trainScore_KCs_granulosa$group="KCs_granulosa"
+
+
+trainScore_KCs_Spinous_Basal=as.data.frame(trainScore_KCs_Spinous_Basal)
+colnames(trainScore_KCs_Spinous_Basal)="Score"
+trainScore_KCs_Spinous_Basal$group="KCs_Spinous_Basal"
+
+
+trainScore_Endo=as.data.frame(trainScore_Endo)
+colnames(trainScore_Endo)="Score"
+trainScore_Endo$group="Endothelial cells"
+
+
+#trainScore_Ep=as.data.frame(trainScore_Ep)
+#colnames(trainScore_Ep)="Score"
+#trainScore_Ep$group="Epithelial cell"
+
+
+trainScore_Fibroblasts=as.data.frame(trainScore_Fibroblasts)
+colnames(trainScore_Fibroblasts)="Score"
+trainScore_Fibroblasts$group="Fibroblasts"
+
+
+trainScore_Melanocytes=as.data.frame(trainScore_Melanocytes)
+colnames(trainScore_Melanocytes)="Score"
+trainScore_Melanocytes$group="Melanocytes"
+
+
+trainScore_NKs=as.data.frame(trainScore_NKs)
+colnames(trainScore_NKs)="Score"
+trainScore_NKs$group="NKs cells"
+
+score=rbind(trainScore_T,trainScore_KCs_Spinous_Basal,trainScore_KCs_granulosa,trainScore_HFs,trainScore_macro_DC,trainScore_NKs,trainScore_Melanocytes,trainScore_Endo,trainScore_Fibroblasts)
+row.names(scissormeata)=scissormeata$Row.names
+score_meta=merge(score,scissormeata,by="row.names")
+save(score_meta,file="E:/muma/GSE151177/scissor_score_meta.Rdata")
+###########score做半分提琴图####################
+load("E:/muma/GSE151177/scissor_score_meta.Rdata")
+library(ggplot2)
+library(ggsci)
+library(ggpubr)
+library(scales)
+GeomSplitViolin <- ggproto("GeomSplitViolin", GeomViolin, draw_group = function(self, data, ..., draw_quantiles = NULL){
+  data <- transform(data, xminv = x - violinwidth * (x - xmin), xmaxv = x + violinwidth * (xmax - x))
+  grp <- data[1,'group']
+  newdata <- plyr::arrange(transform(data, x = if(grp%%2==1) xminv else xmaxv), if(grp%%2==1) y else -y)
+  newdata <- rbind(newdata[1, ], newdata, newdata[nrow(newdata), ], newdata[1, ])
+  newdata[c(1,nrow(newdata)-1,nrow(newdata)), 'x'] <- round(newdata[1, 'x']) 
+  if (length(draw_quantiles) > 0 & !scales::zero_range(range(data$y))) {
+    stopifnot(all(draw_quantiles >= 0), all(draw_quantiles <= 
+                                              1))
+    quantiles <- create_quantile_segment_frame(data, draw_quantiles)
+    aesthetics <- data[rep(1, nrow(quantiles)), setdiff(names(data), c("x", "y")), drop = FALSE]
+    aesthetics$alpha <- rep(1, nrow(quantiles))
+    both <- cbind(quantiles, aesthetics)
+    quantile_grob <- GeomPath$draw_panel(both, ...)
+    ggplot2:::ggname("geom_split_violin", grobTree(GeomPolygon$draw_panel(newdata, ...), quantile_grob))
+  }
+  else {
+    ggplot2:::ggname("geom_split_violin", GeomPolygon$draw_panel(newdata, ...))
+  }
+})
+
+geom_split_violin <- function (mapping = NULL, data = NULL, stat = "ydensity", position = "identity", ..., draw_quantiles = NULL, trim = TRUE, scale = "area", na.rm = FALSE, show.legend = NA, inherit.aes = TRUE) {
+  layer(data = data, mapping = mapping, stat = stat, geom = GeomSplitViolin, position = position, show.legend = show.legend, inherit.aes = inherit.aes, params = list(trim = trim, scale = scale, draw_quantiles = draw_quantiles, na.rm = na.rm, ...))
+}
+###自定义颜色
+mypal=pal_simpsons(alpha = .6)(9)
+mypal[c(1,7)]
+show_col(mypal)
+show_col(mypal[c(1,7)])
+score_meta$scissor=as.factor(score_meta$scissor)
+###自定义主题
+mytheme <- theme(axis.text.x=element_text(size=12,angle = 90, hjust = 1, vjust =.5), 
+                 axis.text.y=element_text(size=12), 
+                 axis.title=element_text(size = 13), 
+                 legend.text=element_text(size=12),
+                 legend.title=element_text(size=12),
+                 axis.line = element_line(size=0.7), 
+                 panel.border = element_blank(),
+                 panel.grid = element_blank())
+ggplot(score_meta,aes(x=celltype,y = Score,fill=scissor))+
+  geom_split_violin(trim = T,colour=NA)+
+  geom_point(stat = 'summary',fun=mean,
+             position = position_dodge(width = 0.9))+
+  scale_fill_manual(values = c("#197EC099","#FED43999"))+
+  stat_summary(fun.min = function(x){quantile(x)[2]},
+               fun.max = function(x){quantile(x)[4]},
+               geom = 'errorbar',color='black',
+               width=0.01,size=0.5,
+               position = position_dodge(width = 0.9))+
+  stat_compare_means(aes(group=scissor),                       #按分组进行统计检验
+                     method = "wilcox.test",
+                     paired = F,                             #非配对t检验
+                     symnum.args = list(cutpoint=c(0,0.001,0.01,0.05,1),
+                                        symbols=c("***","**","*","ns")),
+                     label = "p.signif",
+                     label.y = score_meta$Score+0.005,      #添加显著性符号的位置
+                     size=4.5)+                       
+  theme_bw()+
+  mytheme+
+  # ylim(-0.1,0.1)+
+  
+  ylab("PPP-score")+xlab("cell-type")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_PPPscore_各细胞类型_箱线图.pdf",width=7,height=7)
+dev.off()
+ggplot(score_meta,aes(x=celltype,y = Score,fill=celltype))+
+  geom_split_violin(trim = T,colour=NA)+
+  geom_point(stat = 'summary',fun=mean,
+             position = position_dodge(width = 0.9))+
+  scale_fill_manual(values = c("#197EC099","#FED43999",'#330066','#336699','#FFCC33',"red","blue","grey","pink"))+
+  stat_summary(fun.min = function(x){quantile(x)[2]},
+               fun.max = function(x){quantile(x)[4]},
+               geom = 'errorbar',color='black',
+               width=0.01,size=0.5,
+               position = position_dodge(width = 0.9))+
+  #stat_compare_means(aes(group=celltype),                       #按分组进行统计检验
+   #                  method = "wilcox.test",
+    #                 paired = F,                             #非配对t检验
+    #                 symnum.args = list(cutpoint=c(0,0.001,0.01,0.05,1),
+     #                                   symbols=c("***","**","*","ns")),
+     #                label = "p.signif",
+     #                label.y = score_meta$Score+0.005,      #添加显著性符号的位置
+     #                size=4.5)+                       
+  theme_bw()+
+  mytheme+
+  # ylim(-0.1,0.1)+
+  
+  ylab("PPP-score")+xlab("cell-type")
+library(export)
+
+################negandpos差异基因火山图#################
+library(Seurat)
+load("E:/muma/GSE151177/data.input_neg.Rdata")
+load("E:/muma/GSE151177/data.input_pos.Rdata")
+load("E:/muma/GSE151177/scissormeata.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+table(scRNA4$celltype)
+scRNA_scissor=subset(x = scRNA4, cells = scissormeata$Row.names)
+row.names(scissormeata)=scissormeata$Row.names
+scRNA_scissor@meta.data=scissormeata
+scRNA_scissor@active.ident=factor( scissormeata$scissor)
+table(Idents(scRNA_scissor))
+scRNA_scissor@meta.data$scissor_group=factor(scRNA_scissor$scissor)
+
+deg_all=FindMarkers(scRNA_scissor, ident.1 = "pos", ident.2 = "neg", group.by="scissor_group", min.pct = 0.01)
+dim(deg_all) #22515     5
+deg_all$gene=row.names(deg_all)
+head(deg_all)
+dif=data.frame(
+  symbol=rownames(deg_all),
+  log2FoldChange=deg_all$avg_log2FC,
+  pvalue=deg_all$p_val
+)
+VolcanoPlot=function(dif, log2FC=log2(0.1), pvalue=0.001, 
+                     label.symbols=NULL, label.max=30,
+                     cols=c("#497aa2", "#ae3137"), title=""){
+  if( all( !c("log2FoldChange", "padj", "symbol") %in% colnames(dif) )){
+    stop("Colnames must include: log2FoldChange, padj, symbol")
+  }
+  rownames(dif)=dif$symbol
+  
+  # (1) define up and down
+  dif$threshold="ns";
+  dif[which(dif$log2FoldChange > log2FC & dif$pvalue <pvalue),]$threshold="up";
+  dif[which(dif$log2FoldChange < (-log2FC) & dif$pvalue < pvalue),]$threshold="down";
+  dif$threshold=factor(dif$threshold, levels=c('down','ns','up'))
+  #head(dif)
+  #
+  tb2=table(dif$threshold); print(tb2)
+  library(ggplot2)
+  # (2) plot
+  g1 = ggplot(data=dif, aes(x=log2FoldChange, y=-log10(pvalue), color=threshold)) +
+    geom_point(alpha=0.8, size=0.8) +
+    geom_vline(xintercept = c(-log2FC, log2FC), linetype=2, color="grey")+
+    geom_hline(yintercept = -log10(pvalue), linetype=2, color="grey")+
+    labs(title= ifelse(""==title, "", paste("DEG:", title)))+
+    xlab(bquote(Log[2]*FoldChange))+
+    ylab(bquote(-Log[10]*italic(P.adj)) )+
+    theme_classic(base_size = 14) +
+    theme(legend.box = "horizontal",
+          legend.position="top",
+          legend.spacing.x = unit(0, 'pt'),
+          legend.text = element_text( margin = margin(r = 20) ),
+          legend.margin=margin(b= -10, unit = "pt"),
+          plot.title = element_text(hjust = 0.5, size=10)
+    ) +
+    scale_color_manual('',labels=c(paste0("down(",tb2[[1]],')'),'ns',
+                                   paste0("up(",tb2[[3]],')' )),
+                       values=c(cols[1], "grey", cols[2]) )+
+    guides(color=guide_legend(override.aes = list(size=3, alpha=1))); g1;
+  # (3)label genes
+  if(is.null(label.symbols)){
+    dif.sig=dif[which(dif$threshold != "ns" ), ]
+    len=nrow(dif.sig)
+    if(len<label.max){
+      label.symbols=rownames(dif.sig)
+    }else{
+      dif.sig=dif.sig[order(dif.sig$log2FoldChange), ]
+      dif.sig= rbind(dif.sig[1:(label.max/2),], dif.sig[(len-label.max/2):len,])
+      label.symbols=rownames(dif.sig)
+    }
+  }
+  dd_text = dif[label.symbols, ]
+  print((dd_text))
+  # add text
+  library(ggrepel)
+  g1 + geom_text_repel(data=dd_text,
+                       aes(x=log2FoldChange, y=-log10(pvalue), label=row.names(dd_text)),
+                       #size=2.5, 
+                       colour="black",alpha=1)
+}
+
+# 可以指定要标记的DEG数量，选出FC最大和最小的基因标记
+VolcanoPlot(dif, pvalue=0.005, title="pos vs neg", label.max = 50)
+
+
+# 也可以指定要标记的基因名字
+VolcanoPlot(dif, pvalue=1e-20, title="pos vs neg -2", 
+            label.symbols=dif[ ((abs(dif$log2FoldChange) > 1) & (dif$pvalue < 1e-40) ) | 
+                                 abs(dif$log2FoldChange) > 4,]$symbol )
+dev.off()
+# 也可以指定要标记的基因名字
+VolcanoPlot(dif, pvalue=1e-4, log2FC=0.1,title="pos vs neg -2", 
+            label.symbols=c("H6PD","ALDOA"))
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_posvsdeg_差异基因_火山图.pdf",width=7,height=7)
+
+dev.off()
+##################irGSEA差异基因富集分析########################################
+library(UCell)
+library(irGSEA)
+library(Seurat)
+
+load("E:/muma/GSE151177/data.input_neg.Rdata")
+load("E:/muma/GSE151177/data.input_pos.Rdata")
+load("E:/muma/GSE151177/scissormeata.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+table(scRNA4$celltype)
+scRNA_scissor=subset(x = scRNA4, cells = scissormeata$Row.names)
+row.names(scissormeata)=scissormeata$Row.names
+scRNA_scissor@meta.data=scissormeata
+scRNA_scissor@active.ident=factor( scissormeata$scissor)
+table(Idents(scRNA_scissor))
+scRNA_scissor@meta.data$scissor_group=factor(scRNA_scissor$scissor)
+
+DimPlot(scRNA_scissor, reduction = "umap",
+        group.by = "scissor",label = T) + NoLegend()
+scRNA_scissor.final=SeuratObject::UpdateSeuratObject(scRNA_scissor)
+scRNA_scissor.final <- CreateAssay5Object(counts = GetAssayData(scRNA_scissor,
+                                                                assay = "RNA", slot = "counts"))
+scRNA_scissor.final  <- NormalizeData(scRNA_scissor.final )
+scRNA_scissor.final3 <- irGSEA.score(object = scRNA_scissor.final, assay = "RNA", slot = "data",
+                                     msigdb = T, species = "Homo sapiens", category = "H", geneid = "symbol",
+                                     method = c("AUCell", "UCell", "singscore", "ssgsea"), kcdf = 'Gaussian')
+
+Seurat::Assays(scRNA_scissor.final3)
+save(scRNA.final3,file="E:/muma/GSE151177/scRNA.final3.Rdata")
+write.csv(scRNA.final3,"E:/muma/GSE151177/scRNA.final3.csv")
+
+# Wlicox test is perform to all enrichment score matrixes and gene sets
+# with adjusted p value &lt; 0.05 are used to integrated through RRA.
+# Among them, Gene sets with p value &lt; 0.05 are statistically
+# significant and common differential in all gene sets enrichment analysis
+# methods. All results are saved in a list.
+result.dge <- irGSEA.integrate(object = scRNA_scissor.final3, 
+                               group.by = scRNA_scissor$scissor_group,
+                               metadata = NULL, col.name = NULL,
+                               # method = c("AUCell","UCell","singscore",
+                               #           "ssgsea"))
+                               method = c("AUCell","UCell","singscore","ssgsea"))
+class(result.dge)
+irGSEA.heatmap.plot <- irGSEA.heatmap(object = result.dge, 
+                                      method = "RRA",
+                                      top = 50, 
+                                      show.geneset = NULL)
+irGSEA.heatmap.plot
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_posvsdeg_irGSEA.heatmap.plot.pdf",width=9,height=7)
+###################################irGSEA.heatmap.plot_GO################################
+scRNA_scissor.final4 <- irGSEA.score(object = scRNA_scissor.final3,assay = "RNA", 
+                                     slot = "data", seeds = 123, ncores = 1,
+                                     min.cells = 3, min.feature = 0,
+                                     custom = F, geneset = NULL, msigdb = T, 
+                                     species = "Homo sapiens", category = "C5",  
+                                     subcategory = "GO:BP", geneid = "symbol",
+                                     method = c("AUCell","UCell","singscore","ssgsea", "JASMINE", "viper"),
+                                     aucell.MaxRank = NULL, ucell.MaxRank = NULL, 
+                                     kcdf = 'Gaussian')
+Seurat::Assays(scRNA_scissor.final4)
+
+result.dge <- irGSEA.integrate(object = scRNA_scissor.final4, 
+                               group.by = scRNA_scissor$scissor_group,
+                               metadata = NULL, col.name = NULL,
+                               # method = c("AUCell","UCell","singscore",
+                               #           "ssgsea"))
+                               method = c("UCell","AUCell"))
+class(result.dge)
+
+irGSEA.heatmap.plot <- irGSEA.heatmap(object = result.dge, 
+                                      method = "RRA",
+                                      top = 50, 
+                                      show.geneset = NULL)
+irGSEA.heatmap.plot
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_posvsdeg_irGSEA.heatmap.plot_GO.pdf",width=9,height=7)
+#####################irGSEA.heatmap.plot_KEGG######################################
+scRNA_scissor.final5 <- irGSEA.score(object = scRNA_scissor.final3,assay = "RNA", 
+                                     slot = "data", seeds = 123, ncores = 1,
+                                     min.cells = 3, min.feature = 0,
+                                     custom = F, geneset = NULL, msigdb = T, 
+                                     species = "Homo sapiens", category = "C2",  
+                                     subcategory = "CP:KEGG", geneid = "symbol",
+                                     method = c("AUCell","UCell","singscore","ssgsea", "JASMINE", "viper"),
+                                     aucell.MaxRank = NULL, ucell.MaxRank = NULL, 
+                                     kcdf = 'Gaussian')
+Seurat::Assays(scRNA_scissor.final5)
+
+result.dge <- irGSEA.integrate(object = scRNA_scissor.final5, 
+                               group.by = scRNA_scissor$scissor_group,
+                               metadata = NULL, col.name = NULL,
+                               # method = c("AUCell","UCell","singscore",
+                               #           "ssgsea"))
+                               method = c("UCell","AUCell"))
+class(result.dge)
+
+irGSEA.heatmap.plot <- irGSEA.heatmap(object = result.dge, 
+                                      method = "RRA",
+                                      top = 50, 
+                                      show.geneset = NULL)
+irGSEA.heatmap.plot
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_posvsdeg_irGSEA.heatmap.plot_KEGG.pdf",width=9,height=7)
+ridgeplot <- irGSEA.ridgeplot(object = result.dge,
+                              method = "UCell",
+                              show.geneset = "KEGG-Pentose phosphate pathway")
+ridgeplot
+save(result.dge,file="E:/muma/GSE151177/scissor_posvsdeg_irGSEAKEGG.Rdata")
+
+###############scissor代谢通路富集分析###############################################
+load("E:/muma/GSE151177/data.input_neg.Rdata")
+load("E:/muma/GSE151177/data.input_pos.Rdata")
+load("E:/muma/GSE151177/scissormeata.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+table(scRNA4$celltype)
+scRNA_scissor=subset(x = scRNA4, cells = scissormeata$Row.names)
+row.names(scissormeata)=scissormeata$Row.names
+scRNA_scissor@meta.data=scissormeata
+scRNA_scissor@active.ident=as.factor( scissormeata$scissor)
+table(Idents(scRNA_scissor))
+scRNA_scissor@meta.data$scissor_group=factor(scRNA_scissor$scissor)
+counts=scRNA_scissor[["RNA"]]$counts
+row.names(counts)
+b=scRNA4@active.ident
+names(scRNA4@active.ident)
+names(scRNA_scissor@active.ident)=scissormeata$Row.names
+scRNA_scissor@active.ident
+scRNA_scissor$scissor2=paste(scRNA_scissor$scissor, scRNA_scissor$celltype, sep="--")
+scRNA_scissor$scissor2
+scRNA_scissor@meta.data$scissor2=factor(scRNA_scissor$scissor2)
+#scRNA_scissor@active.ident=as.factor( scRNA_scissor$scissor2)
+VlnPlot(scRNA_scissor,features = c("H6PD","ALDOA"),pt.size = 0,ncol = 2 )
+graph2pdf(file="E:/muma/GSE151177/neg_pos_H6PD_ALDOA小提琴图2.pdf",width=7,height=7)
+obj=scRNA4
+#####修改scmetabolism函数##########
+library(scMetabolism)
+sc.metabolism.Seurat <- function(obj, method = "VISION", imputation = F, ncores = 2, metabolism.type = "KEGG") {
+  
+  countexp<-obj[["RNA"]]$counts
+  
+  countexp<-data.frame(as.matrix(countexp))
+  
+  #signatures_KEGG_metab <- "./data/KEGG_metabolism_nc.gmt"
+  #signatures_REACTOME_metab <- "./data/REACTOME_metabolism.gmt"
+  
+  signatures_KEGG_metab <- system.file("data", "KEGG_metabolism_nc.gmt", package = "scMetabolism")
+  signatures_REACTOME_metab <- system.file("data", "REACTOME_metabolism.gmt", package = "scMetabolism")
+  
+  
+  if (metabolism.type == "KEGG")  {gmtFile<-signatures_KEGG_metab; cat("Your choice is: KEGG\n")}
+  if (metabolism.type == "REACTOME")  {gmtFile<-signatures_REACTOME_metab; cat("Your choice is: REACTOME\n")}
+  
+  #imputation
+  if (imputation == F) {
+    countexp2<-countexp
+  }
+  if (imputation == T) {
+    
+    cat("Start imputation...\n")
+    
+    #Citation: George C. Linderman, Jun Zhao, Yuval Kluger. Zero-preserving imputation of scRNA-seq data using low-rank approximation. bioRxiv. doi: https://doi.org/10.1101/397588
+    #Github: https://github.com/KlugerLab/ALRA
+    
+    cat("Citation: George C. Linderman, Jun Zhao, Yuval Kluger. Zero-preserving imputation of scRNA-seq data using low-rank approximation. bioRxiv. doi: https://doi.org/10.1101/397588 \n")
+    #####修改alra函数#########
+    
+    countexp=as.matrix(countexp)
+    result.completed <- alra(countexp)
+    countexp2 <- result.completed[[3]]; row.names(countexp2) <- row.names(countexp)
+  }
+  
+  #signature method
+  cat("Start quantify the metabolism activity...\n")
+  
+  #VISION
+  if (method == "VISION") {
+    library(VISION)
+    n.umi <- colSums(countexp2)
+    scaled_counts <- t(t(countexp2) / n.umi) * median(n.umi)
+    vis <- Vision(scaled_counts, signatures = gmtFile)
+    
+    options(mc.cores = ncores)
+    
+    vis <- analyze(vis)
+    
+    signature_exp<-data.frame(t(vis@SigScores))
+  }
+  
+  #AUCell
+  if (method == "AUCell") {
+    library(AUCell)
+    library(GSEABase)
+    cells_rankings <- AUCell_buildRankings(as.matrix(countexp2), nCores=ncores, plotStats=F) #rank
+    geneSets <- getGmt(gmtFile) #signature read
+    cells_AUC <- AUCell_calcAUC(geneSets, cells_rankings) #calc
+    signature_exp <- data.frame(getAUC(cells_AUC))
+  }
+  
+  #ssGSEA
+  if (method == "ssGSEA") {
+    library(GSVA)
+    library(GSEABase)
+    geneSets <- getGmt(gmtFile) #signature read
+    gsva_es <- gsva(as.matrix(countexp2), geneSets, method=c("ssgsea"), kcdf=c("Poisson"), parallel.sz=ncores) #
+    signature_exp<-data.frame(gsva_es)
+  }
+  
+  #GSVA
+  if (method == "ssGSEA") {
+    library(GSVA)
+    library(GSEABase)
+    geneSets <- getGmt(gmtFile) #signature read
+    gsva_es <- gsva(as.matrix(countexp2), geneSets, method=c("gsva"), kcdf=c("Poisson"), parallel.sz=ncores) #
+    signature_exp<-data.frame(gsva_es)
+  }
+  
+  obj@assays$METABOLISM$score<-signature_exp
+  obj
+}
+countexp.Seurat<-sc.metabolism.Seurat(obj =  scRNA_scissor, method = "AUCell", imputation =F, ncores = 2, metabolism.type = "KEGG")
+input.pathway <- rownames(countexp.Seurat@assays[["METABOLISM"]][["score"]])[1:15]
+#DotPlot.metabolism(obj = countexp.Seurat, pathway =input.pathway, phenotype = "celltype", norm = "y")
+#library(export)
+#graph2pdf(file="E:/muma/银屑病代谢/GSE151177/scissorcelltype.pdf",width=7,height=7)
+
+#DimPlot.metabolism(obj = countexp.Seurat, pathway = "Pentose phosphate pathway", dimention.reduction.type = "umap", dimention.reduction.run = F, size = 1)
+DotPlot.metabolism(obj = countexp.Seurat, pathway =input.pathway, phenotype = "scissor_group", norm = "y")
+
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissorgroup_scmetabolism.pdf",width=7,height=7)
+countexp.Seurat@meta.data$scissor_group2=paste(countexp.Seurat@meta.data$celltype, countexp.Seurat@meta.data$scissor, sep="_")
+table(countexp.Seurat@meta.data$scissor_group2)
+DotPlot.metabolism(obj = countexp.Seurat, pathway =input.pathway, phenotype = "scissor_group2", norm = "y")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissorgroup2_scmetabolism.pdf",width=7,height=7)
+AUcellscore=countexp.Seurat@assays[["METABOLISM"]][["score"]]
+write.csv(AUcellscore,"E:/muma/GSE151177/AUcellscore.csv")
+save(AUcellscore,file="E:/muma/GSE151177/AUcellscore.Rdata")
+countexp.Seurat<-sc.metabolism.Seurat(obj =  scRNA_scissor, method = "ssgsea", imputation =F, ncores = 2, metabolism.type = "KEGG")
+
+
+BoxPlot.metabolism(obj = countexp.Seurat, pathway = input.pathway, phenotype = "scissor_group", ncol = 5)
+BoxPlot.metabolism(obj = countexp.Seurat, pathway ="Pentose phosphate pathway", phenotype = "scissor_group", ncol = 5)
+############ssgsea计算代谢评分，并进行热图展示##########################
+library(GSEABase)
+library(GSVA)
+library(limma)
+library(pheatmap)
+library(ggplot2)
+
+gmtFile="E:/muma/银屑病代谢/图三/KEGG_metabolism_nc.gmt"                    #基因集文件
+geneSets=getGmt(gmtFile, geneIdType=SymbolIdentifier())
+# 基因表达数据文件
+expression <-scRNA_scissor[["RNA"]]$counts
+expression <- NormalizeData(expression)
+# 读取表型数据文件
+pheno <- scRNA_scissor@meta.data$scissor_group 
+# 背景基因集合文件
+geneSets=getGmt(gmtFile, geneIdType=SymbolIdentifier())
+gene_set <-geneSets
+
+# 读取基因表达数据
+expression <- expression[which(apply(expression,1,function(x){return(sum(x>10))})>ncol(expression)*0.25),]
+# 进行 ssGSEA 分析
+gsva_matrix <- gsva(as.matrix(expression), gene_set, method='ssgsea', kcdf='Gaussian', abs.ranking=TRUE)
+# 输出结果
+write.table(gsva_matrix,"E:/muma/GSE151177/scissorgroup_gsva_matrix.txt", sep="\t", quote=FALSE, row.names = TRUE)
+save(gsva_matrix,file="E:/muma/GSE151177/scissorgroup_gsva_matrix.Rdata")
+#差异分析
+library(data.table)
+gsva_matrix=read.delim("E:/muma/GSE151177/scissorgroup_gsva_matrix.txt")
+group=pheno
+design <- model.matrix(~group)
+colnames(design) <- levels(group)
+exprSet=as.data.frame(gsva_matrix)
+fit <- lmFit(exprSet,design)
+fit2 <- eBayes(fit)
+allDiff=topTable(fit2,adjust='fdr', coef=1,number=Inf)
+allDiff= na.omit(allDiff)
+#按矫正后的P小于0.05对结果进行筛选并保存为alldiff.xls文件，准备绘图输入文件
+deg=allDiff
+logFC=0.2
+adj.P.Val = 0.05
+type1 = (deg$adj.P.Val < adj.P.Val)&(deg$logFC < -logFC)
+type2 = (deg$adj.P.Val < adj.P.Val)&(deg$logFC > logFC)
+deg$Group = ifelse(type1,"Down",ifelse(type2,"Up","Not-Sig"))
+table(deg$Group)
+table(deg$Group)
+#View(deg)
+deg=deg[!deg$Group==c("Not-Sig"),]
+index <- rownames(deg)
+annotation_col <- data.frame(group)
+rownames(annotation_col) <- colnames(gsva_matrix)
+load("E:/muma/GSE151177/scissorgroup_gsva_matrix.Rdata")
+gsva_matrix=t( scale( t( gsva_matrix ) ) )
+range(gsva_matrix)
+
+#gsva_matrix=log2(gsva_matrix+1)
+gsva_matrix[gsva_matrix < -5] = -5
+gsva_matrix[gsva_matrix > 5] = 5
+
+pheatmap(gsva_matrix[index[1:10],],      #选择前15个通路进行展示
+         annotation=annotation_col,
+         cluster_cols = F,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         show_colnames = F,
+         scale="row",  #矫正
+         #border_color ="NA",
+         fontsize = 12,
+         fontsize_row=3,
+         fontsize_col=3)
+library(export)
+dev.off()
+##############scmetabolism代谢#################
+#导入需要的R包
+load("E:/muma/GSE151177/scRNA3.Rdata")
+library(phangorn)
+library(scMetabolism)
+library(ggplot2)
+library(rsvd)
+library(AUCell)
+library(GSEABase)
+library(GSVA)
+library(scMetabolism)
+library(ggplot2)
+library(rsvd)
+counts=scRNA3[["RNA"]]$counts
+#####修改scmetabolism函数##########
+sc.metabolism.Seurat <- function(obj, method = "VISION", imputation = F, ncores = 2, metabolism.type = "KEGG") {
+  
+  countexp<-obj[["RNA"]]$counts
+  
+  countexp<-data.frame(as.matrix(countexp))
+  
+  #signatures_KEGG_metab <- "./data/KEGG_metabolism_nc.gmt"
+  #signatures_REACTOME_metab <- "./data/REACTOME_metabolism.gmt"
+  
+  signatures_KEGG_metab <- system.file("data", "KEGG_metabolism_nc.gmt", package = "scMetabolism")
+  signatures_REACTOME_metab <- system.file("data", "REACTOME_metabolism.gmt", package = "scMetabolism")
+  
+  
+  if (metabolism.type == "KEGG")  {gmtFile<-signatures_KEGG_metab; cat("Your choice is: KEGG\n")}
+  if (metabolism.type == "REACTOME")  {gmtFile<-signatures_REACTOME_metab; cat("Your choice is: REACTOME\n")}
+  
+  #imputation
+  if (imputation == F) {
+    countexp2<-countexp
+  }
+  if (imputation == T) {
+    
+    cat("Start imputation...\n")
+    
+    #Citation: George C. Linderman, Jun Zhao, Yuval Kluger. Zero-preserving imputation of scRNA-seq data using low-rank approximation. bioRxiv. doi: https://doi.org/10.1101/397588
+    #Github: https://github.com/KlugerLab/ALRA
+    
+    cat("Citation: George C. Linderman, Jun Zhao, Yuval Kluger. Zero-preserving imputation of scRNA-seq data using low-rank approximation. bioRxiv. doi: https://doi.org/10.1101/397588 \n")
+    #####修改alra函数#########
+    
+    countexp=as.matrix(countexp)
+    result.completed <- alra(countexp)
+    countexp2 <- result.completed[[3]]; row.names(countexp2) <- row.names(countexp)
+  }
+  
+  #signature method
+  cat("Start quantify the metabolism activity...\n")
+  
+  #VISION
+  if (method == "VISION") {
+    library(VISION)
+    n.umi <- colSums(countexp2)
+    scaled_counts <- t(t(countexp2) / n.umi) * median(n.umi)
+    vis <- Vision(scaled_counts, signatures = gmtFile)
+    
+    options(mc.cores = ncores)
+    
+    vis <- analyze(vis)
+    
+    signature_exp<-data.frame(t(vis@SigScores))
+  }
+  
+  #AUCell
+  if (method == "AUCell") {
+    library(AUCell)
+    library(GSEABase)
+    cells_rankings <- AUCell_buildRankings(as.matrix(countexp2), nCores=ncores, plotStats=F) #rank
+    geneSets <- getGmt(gmtFile) #signature read
+    cells_AUC <- AUCell_calcAUC(geneSets, cells_rankings) #calc
+    signature_exp <- data.frame(getAUC(cells_AUC))
+  }
+  
+  #ssGSEA
+  if (method == "ssGSEA") {
+    library(GSVA)
+    library(GSEABase)
+    geneSets <- getGmt(gmtFile) #signature read
+    gsva_es <- gsva(as.matrix(countexp2), geneSets, method=c("ssgsea"), kcdf=c("Poisson"), parallel.sz=ncores) #
+    signature_exp<-data.frame(gsva_es)
+  }
+  
+  #GSVA
+  if (method == "ssGSEA") {
+    library(GSVA)
+    library(GSEABase)
+    geneSets <- getGmt(gmtFile) #signature read
+    gsva_es <- gsva(as.matrix(countexp2), geneSets, method=c("gsva"), kcdf=c("Poisson"), parallel.sz=ncores) #
+    signature_exp<-data.frame(gsva_es)
+  }
+  
+  obj@assays$METABOLISM$score<-signature_exp
+  obj
+}
+countexp.Seurat<-sc.metabolism.Seurat(obj =  scRNA3, method = "AUCell", imputation =F, ncores = 2, metabolism.type = "KEGG")
+input.pathway <- rownames(countexp.Seurat@assays[["METABOLISM"]][["score"]])[1:15]
+DotPlot.metabolism(obj = countexp.Seurat, pathway =input.pathway, phenotype = "celltype", norm = "y")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/metabolism_celltype.pdf",width=7,height=7)
+
+#DimPlot.metabolism(obj = countexp.Seurat, pathway = "Pentose phosphate pathway", dimention.reduction.type = "umap", dimention.reduction.run = F, size = 1)
+DotPlot.metabolism(obj = countexp.Seurat, pathway =input.pathway, phenotype = "samplegroup", norm = "y")
+library(export)
+graph2pdf(file="E:/muma/GSE151177/samplegroup_scmetabolism.pdf",width=7,height=7)
+
+BoxPlot.metabolism(obj = countexp.Seurat, pathway = "Pentose phosphate pathway", phenotype = "celltype", ncol = 5)
+BoxPlot.metabolism(obj = countexp.Seurat, pathway ="Pentose phosphate pathway", phenotype = "samplegroup", ncol = 5)
+obj = countexp.Seurat
+pathway =input.pathway
+phenotype = "samplegroup"
+DotPlot.metabolism <- function(obj, pathway, phenotype, norm = "y"){
+  input.norm = norm
+  input.pathway <- pathway
+  input.parameter<-phenotype
+  
+  metadata<-obj@meta.data
+  metabolism.matrix <- obj@assays$METABOLISM$score
+  
+  
+  
+  metadata[,input.parameter]<-as.character(metadata[,input.parameter])
+  metabolism.matrix_sub<-t(metabolism.matrix[input.pathway,])
+  
+  #arrange large table
+  gg_table<-c()
+  for (i in 1:length(input.pathway)){
+    gg_table<-rbind(gg_table, cbind(metadata[,input.parameter], input.pathway[i], metabolism.matrix_sub[,i]))
+  }
+  gg_table<-data.frame(gg_table)
+  
+  #get median value
+  gg_table_median<-c()
+  input.group.x<-unique(as.character(gg_table[,1]))
+  input.group.y<-unique(as.character(gg_table[,2]))
+  
+  
+  for (x in 1:length(input.group.x)){
+    for (y in 1:length(input.group.y)){
+      gg_table_sub<-subset(gg_table, gg_table[,1] == input.group.x[x] & gg_table[,2] == input.group.y[y])
+      gg_table_median<-rbind(gg_table_median, cbind(input.group.x[x], input.group.y[y], median(as.numeric(as.character(gg_table_sub[,3])))))
+      
+    }
+  }
+  gg_table_median<-data.frame(gg_table_median)
+  gg_table_median[,3]<-as.numeric(as.character(gg_table_median[,3]))
+  
+  
+  #normalize
+  gg_table_median_norm<-c()
+  input.group.x<-unique(as.character(gg_table[,1]))
+  input.group.y<-unique(as.character(gg_table[,2]))
+  
+  
+  range01 <- function(x){(x-min(x))/(max(x)-min(x))}
+  
+  if (input.norm == "y")
+    for (y in 1:length(input.group.y)){
+      gg_table_median_sub<-subset(gg_table_median, gg_table_median[,2] == input.group.y[y])
+      norm_value<- range01(as.numeric(as.character(gg_table_median_sub[,3])))
+      gg_table_median_sub[,3]<-norm_value
+      gg_table_median_norm<-rbind(gg_table_median_norm, gg_table_median_sub)
+    }
+  
+  if (input.norm == "x")
+    for (x in 1:length(input.group.x)){
+      gg_table_median_sub<-subset(gg_table_median, gg_table_median[,1] == input.group.x[x])
+      norm_value<- range01(as.numeric(as.character(gg_table_median_sub[,3])))
+      gg_table_median_sub[,3]<-norm_value
+      gg_table_median_norm<-rbind(gg_table_median_norm, gg_table_median_sub)
+    }
+  
+  if (input.norm == "na") gg_table_median_norm<-gg_table_median
+  
+  
+  gg_table_median_norm<-data.frame(gg_table_median_norm)
+  gg_table_median_norm[,3]<-as.numeric(as.character(gg_table_median_norm[,3]))
+  
+  
+  
+  
+  library(wesanderson)
+  pal <- wes_palette("Zissou1", 100, type = "continuous")
+  
+  ggplot(data=gg_table_median_norm, aes(x=gg_table_median_norm[,1], y=gg_table_median_norm[,2], color = gg_table_median_norm[,3])) +
+    geom_point(data=gg_table_median_norm, aes(size = gg_table_median_norm[,3])) + #geom_line() +
+    #theme_bw()+theme(aspect.ratio=0.5, axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ylab("Metabolic Pathway")+ xlab(input.parameter)+
+    theme_bw()+theme(axis.text.x = element_text(angle = 45, hjust = 1), #aspect.ratio=1,
+                     panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+    scale_color_gradientn(colours = pal) +
+    labs(color = "Value", size = "Value") +
+    #facet_wrap(~tissueunique, ncol = 1) +
+    #theme_bw()+theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    NULL
+}
+pathway <- rownames(countexp.Seurat@assays[["METABOLISM"]][["score"]])[1:10]
+input.pathway <- rownames(countexp.Seurat@assays[["METABOLISM"]][["score"]])[1:10]
+###########求两组间的p值##################
+#P.metabolism <- function(obj, pathway, phenotype, norm = "y"){
+input.norm = norm
+input.pathway <- pathway
+input.parameter<-phenotype
+
+metadata<-obj@meta.data
+metabolism.matrix <- obj@assays$METABOLISM$score
+metadata[,input.parameter]<-as.character(metadata[,input.parameter])
+metabolism.matrix_sub<-t(metabolism.matrix[input.pathway,])
+metabolism.matrix_sub=as.data.frame(metabolism.matrix_sub)
+metabolism.matrix_sub$group=scRNA3@meta.data$samplegroup
+met_sym=names( metabolism.matrix_sub)[1:(ncol(  metabolism.matrix_sub)-1)]
+#for循环16次计算每个基因的p值
+pval=c()
+#获取16个m6a基因的名字，最后一列为样本类型
+
+for(met in met_sym){
+  #根据type来将样本分成两组
+  p=t.test(metabolism.matrix_sub[,met]~metabolism.matrix_sub$group)$p.value
+  #存放p值
+  pval=c(pval,p)
+  pval
+  
+}
+pval
+pvalue <- pval
+myfun <- function(pval) {
+  stars = ""
+  if(pval <= 0.001)
+    stars = "***"
+  if(pval > 0.001 & pval <= 0.01)
+    stars = "**"
+  if(pval > 0.01 & pval <= 0.05)
+    stars = "*"
+  if(pval > 0.05 & pval <= 0.1)
+    stars = ""
+  stars
+}
+signif = sapply(pvalue, function(x) myfun(x))
+pval=as.data.frame(pval)
+colnames(pval)="p"
+row.names(pval)=met_sym
+pval$sig=signif 
+pval$size=-log10(pval$p)
+pval$num="sig"
+mycolors <- c("#3b374c", "#44598e", "#64a0c0", "#7ec4b7", "#deebcd") #藏青-浅绿
+pal <- wes_palette("Darjeeling2", 5, type = "continuous")
+library(RColorBrewer)
+p=ggplot(data=pval, aes(x=rownames(pval), y=pval[,4], color = pval[,3])) +
+  geom_point(data=pval, aes(size = pval[,3]/5)) + 
+  #theme_bw()+theme(aspect.ratio=0.5, axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab("signif (t.test)")+ xlab(input.parameter)+
+  theme_bw()+theme(axis.text.x = element_text(angle = 45, hjust = 1), #aspect.ratio=1,
+                   panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+  scale_color_gradientn(colours = pval$p,colors = mycolors) +
+  geom_text(aes(label=pval$sig),size=2,color="white",
+            hjust=0.5,vjust=0.7)+
+  labs(color = "pval", size = "log10(pval)") +
+  
+  #facet_wrap(~tissueunique, ncol = 1) +
+  #theme_bw()+theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  NULL
+library(ggsci)
+p+scale_fill_brewer(palette = "Set1")
+col5<-colorRampPalette((pal_npg("nrc")(9)))(56)#将ggsci包中的NPG方案9个颜色扩展为56个
+p=p + scale_color_gradientn(colors = c("#3b374c", "#44598e", "#64a0c0", "#7ec4b7", "#deebcd")) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text=element_text(size=12))
+p=p + scale_color_gradientn(colors =col5) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text=element_text(size=12))
+p+ scale_colour_distiller(palette = "Greens")
+p+ 
+  scale_colour_gradient2()
+
+library(ggsci)
+library(export)
+graph2pdf(file="E:/muma/GSE151177/samplegroup_scmetabolism_P值.pdf",width=7,height=7)
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(export)
+FeaturePlot(object = scRNA3, features = c('H6PD'),cols = c("lightgrey" ,"purple"),slot = "data",label.size = 6,pt.size = 1.2)
+graph2pdf(file="E:/muma/GSE151177/H6PD_UMAP.pdf",width=7,height=7)
+FeaturePlot(object = scRNA3, features = c('ALDOA'),cols = c("lightgrey" ,"purple"),slot = "data",label.size = 6,pt.size = 1.2) 
+graph2pdf(file="E:/muma/GSE151177/ALDOA_UMAP.pdf",width=7,height=7)
+table(scRNA3$samplegroup)
+scRNA4= scRNA3[, scRNA3$samplegroup %in% c( "Patient" )]
+load("E:/muma/GSE151177/scRNA4.Rdata")
+VlnPlot(scRNA4,features = c("H6PD","ALDOA"),pt.size = 0,ncol = 2)
+graph2pdf(file="E:/muma/GSE151177/Patient_H6PD_ALDOA小提琴图.pdf",width=7,height=7)
+neg_pos=merge (data.input_neg, y = c (data.input_pos), add.cell.ids = c ("neg", "pos"), project = "neg_pos")
+VlnPlot(neg_pos,features = c("H6PD"),pt.size = 0,ncol = 2)
