@@ -1,0 +1,778 @@
+#########基因与各大代谢通路的相关性##############
+#与代谢相关的基因GSVA###
+
+library(data.table)
+library(DESeq2)
+library(edgeR)
+library("edgeR")
+#创建分组
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group_list=group$group
+#GSVA分析
+#引用包
+library(limma)
+library(GSEABase)
+library(GSEABase)
+library(GSVA)
+library(qusage)
+library(msigdbr)
+library(pheatmap)
+clusterFile="m6aCluster.txt"      #m6A分型输入文件
+gmtFile="E:/muma/银屑病代谢/图三/KEGG_metabolism_nc.gmt"                    #基因集文件
+gmt_immune<-read.gmt("E:/muma/人注释文件/c7.all.v2023.2.Hs.symbols.gmt")
+gmt_immune<-"E:/muma/人注释文件/c7.all.v2023.2.Hs.symbols.gmt"
+#gmt_immune<-split(gmt_immune$gene,gmt_immune$term)
+#读取表达输入文件,并对输入文件整理
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+
+exp=data
+dimnames=list(rownames(exp), colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)), nrow=nrow(exp), dimnames=dimnames)
+data=avereps(data)
+gmtFile="E:/muma/人注释文件/c7.all.v2023.2.Hs.symbols.gmt"
+#GSVA分析
+geneSets=getGmt(gmtFile, geneIdType=SymbolIdentifier())
+gsvaResult=gsva(data, 
+                geneSets, 
+                min.sz=10, 
+                max.sz=500, 
+                verbose=TRUE,
+                parallel.sz=1)
+gsvaOut=rbind(id=colnames(gsvaResult), gsvaResult)
+####################两大基因的表达数据#################
+library(data.table)
+library(Hmisc)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+CTKgenes <- c("IL2","IL12A","IL12B","IL17A","IFNA1","IFNB1","IFNG","IFNGR","CD11b",
+              "ITGAM","CD33","ENTPD1","ICOSLG","CD275","CD278","TNFSF9","TNFRSF9",
+              "CD40","CD40LG","CD70","CD27","TNFSF18","TNFRSF18","TNFSF14","TNFRSF14",
+              "TNFSF4","TNFRSF4","HLA-A","CD3","CEACAM1","CD80","CD86","CTLA4","CD276",
+              "VTCN1","PVR","CD226","TIGIT","CD96","LGALS3","LGALS3BP","LGALS9","LGALS9C",
+              "HAVCR2","HHLA2","TMIGD2","CD274","PDCD1LG2","PDCD1","VSIR")
+signaturegene=c(     "H6PD",     "ALDOA")
+mat1=exppso[signaturegene,]
+###################求相关性并做图###########################
+mat2=gsvaResult
+identical(colnames(mat1),colnames(mat2))## [1]
+nb=rbind(mat2,mat1)
+length(row.names(mat1))
+nc = t(nb)
+m = rcorr(nc)$r[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+p = rcorr(nc)$P[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+library(dplyr)
+library(gtools)
+star2=stars.pval(p)
+
+#tmp =matrix(case_when(p<0.01~"**",p<0.05~"*",TRUE~""),nrow = 28)
+library(dplyr)
+source("D:/R-4.1.0/modified_pheatmap.R")
+pheatmap(m,         display_numbers =star2,         angle_col =45,         color = colorRampPalette(c("#92b7d1", "white", "#d71e22"))(100),         border_color = "white",         treeheight_col = 0,         treeheight_row = 0)
+
+library(tidyr)# 使用的gather & spread
+library(reshape2) # 使用的函数 melt & dcast 
+m=as.data.frame(m)
+m1=as.data.frame(m$H6PD)
+colnames(m1)="H6PD"
+m2=as.data.frame(m$ALDOA)
+colnames(m2)="ALDOA"
+m1 <- melt(m1)
+rownames(m1)=row.names(m)
+m2 <- melt(m2)
+rownames(m2)=row.names(m)
+
+colnames(m1)
+colnames(m1)=c("gene","r")
+colnames(m2)=c("gene","r")
+mall=rbind(m1,m2)
+p=as.data.frame(p)
+p1=as.data.frame(p$H6PD)
+colnames(p1)="H6PD"
+p2=as.data.frame(p$ALDOA)
+colnames(p2)="ALDOA"
+p1 <- melt(p1)
+rownames(p1)=row.names(p)
+colnames(p1)
+colnames(p1)=c("gene","p")
+p2 <- melt(p2)
+rownames(p2)=row.names(p)
+
+colnames(p2)
+colnames(p2)=c("gene","p")
+pall=rbind(p1,p2)
+
+
+data_plot=cbind(mall,pall)
+data_plot=data_plot[,-3]
+
+data=data_plot
+data$path=row.names(data)
+data$path=gsub("1","",data$path)
+data=subset(data,data$r >=0.4|data$r < -0.4,select=c(path, gene,r,p))
+
+library(reshape2)#载入包
+library(ggplot2)#载入包
+ggplot(data,aes(x=path,y=gene,size=r,color=p))+geom_point()+
+  theme(panel.background = element_blank(),
+        panel.grid = element_line("gray"),
+        panel.border = element_rect(colour = "black",fill=NA))#ggplot2绘图，有点粗糙，见谅
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(ggsignif)
+library(ggpubr)
+library(RColorBrewer)
+library(rstatix)
+data$pgroup=ifelse(data$p<0.001,"p<0.001",
+                   ifelse(data$p<0.01,"p<0.01",   
+                          ifelse(data$p<0.05,"p<0.05", 
+                                 "Notsig")))
+table(data$pgroup)
+p=ggplot(data,aes(x=path,y=gene)) +geom_point(aes(size=p,color=p))+
+  scale_size_continuous(name = "p" ,range = c(1,5), breaks = c(0.0001,0.001,0.01,0.05))+
+  theme_bw()+#图片背景颜色设置
+  theme(panel.grid = element_blank(),
+        axis.text.x=element_text(angle=90,hjust = 1,vjust=0.5))+
+  labs(x=NULL,y=NULL)
+p + scale_color_gradientn(colors = c("darkblue", "darkorange"))+
+  scale_color_gradient2(
+    name = "Spearman Correlation",
+    low = "darkblue", high = "darkorange"
+  ) 
+
+tile <- ggplot(data, aes_(x = ~gene,y = ~path,
+                          size = ~p,
+                          color = ~r,
+                          fill = ~r)) +
+  geom_point() +
+  theme_minimal() +
+  scale_shape_manual(values = c(1, 1)) + 
+  scale_color_manual(values = c("black"))+
+  scale_size_continuous(name = "p" ,range = c(2, 7), breaks = c(0.00001,0.0001,0.001)) + 
+  scale_color_gradient2(low = "darkblue", high = "darkorange",
+                        guide = "colorbar") +
+  scale_fill_gradient2(low = "darkblue", high = "darkorange",
+                       guide = "colorbar") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90L,
+                                   hjust = 1L,
+                                   vjust = 0.5),
+        legend.position = "bottom") 
+tile + theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"))
+library(export)
+graph2pdf(file='E:/muma/银屑病代谢/图2/二基因与代谢通路的相关性.pdf',width=15,height=7)
+dev.off()
+ggplot(data = data, aes(x=gene,y=path)) +
+  geom_point(aes(size = -log10(p), fill = r), shape = 21, color = 'black', stroke = 1) +
+  labs(x = '', y = '') +
+  scale_size_area(name = '-log10(q-value)',
+                  breaks = seq(4, 20, 2),
+                  limits = c(-100, 100),
+                  max_size = 10) +
+  scale_fill_gradient2(low = '#08519c', 
+                       mid = 'white', 
+                       high = 'red',
+                       limits = c(-1, 1),
+                       name = '',
+                       na.value = '#08519c') +
+  # facet_wrap(.~type) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(family = 'sans', size = 15),
+        panel.background = element_rect(fill = '#deebf7'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(fill = NA, color = 'gray', linewidth = 2),
+        axis.title.x = element_text(family = 'sans', face = 'bold', size = 15),
+        axis.text = element_text(family = 'sans', colour = 'black'),
+        axis.ticks = element_line(linewidth = 1))
+ggsave(filename = 'E:/muma/银屑病代谢/图2/二基因与代谢通路的相关性.jpeg', dpi = 3000, width = 6, height = 10)
+#########基因与各大免疫通路的相关性##############
+#与代谢相关的基因GSVA###
+
+library(data.table)
+library(DESeq2)
+library(edgeR)
+library("edgeR")
+#创建分组
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+
+#GSVA分析
+#引用包
+library(limma)
+library(GSEABase)
+library(GSVA)
+library(pheatmap)
+clusterFile="m6aCluster.txt"      #m6A分型输入文件
+gmtFile="E:/muma/银屑病代谢/图三/KEGG_metabolism_nc.gmt"                    #基因集文件
+gmtFile="E:/muma/人注释文件/immunepathway.gmt"
+exp=exppso
+dimnames=list(rownames(exp), colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)), nrow=nrow(exp), dimnames=dimnames)
+data=avereps(data)
+
+#GSVA分析
+geneSets=getGmt(gmtFile, geneIdType=SymbolIdentifier())
+gsvaResult=gsva(data, 
+                geneSets, 
+                min.sz=20, 
+                max.sz=200, 
+                verbose=TRUE,
+                parallel.sz=1)
+gsvaOut=rbind(id=colnames(gsvaResult), gsvaResult)
+####################两大基因的表达数据#################
+library(data.table)
+library(Hmisc)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+CTKgenes <- c("IL2","IL12A","IL12B","IL17A","IFNA1","IFNB1","IFNG","IFNGR","CD11b",
+              "ITGAM","CD33","ENTPD1","ICOSLG","CD275","CD278","TNFSF9","TNFRSF9",
+              "CD40","CD40LG","CD70","CD27","TNFSF18","TNFRSF18","TNFSF14","TNFRSF14",
+              "TNFSF4","TNFRSF4","HLA-A","CD3","CEACAM1","CD80","CD86","CTLA4","CD276",
+              "VTCN1","PVR","CD226","TIGIT","CD96","LGALS3","LGALS3BP","LGALS9","LGALS9C",
+              "HAVCR2","HHLA2","TMIGD2","CD274","PDCD1LG2","PDCD1","VSIR")
+signaturegene=c(     "H6PD",     "ALDOA")
+mat1=exppso[signaturegene,]
+###################求相关性并做图###########################
+mat2=gsvaResult
+identical(colnames(mat1),colnames(mat2))## [1]
+nb=rbind(mat2,mat1)
+length(row.names(mat1))
+nc = t(nb)
+m = rcorr(nc)$r[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+p = rcorr(nc)$P[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+library(dplyr)
+library(gtools)
+star2=stars.pval(p)
+
+#tmp =matrix(case_when(p<0.01~"**",p<0.05~"*",TRUE~""),nrow = 28)
+library(dplyr)
+source("D:/R-4.1.0/modified_pheatmap.R")
+pheatmap(m,         display_numbers =star2,         angle_col =45,         color = colorRampPalette(c("#92b7d1", "white", "#d71e22"))(100),         border_color = "white",         treeheight_col = 0,         treeheight_row = 0)
+
+
+m=melt(m)
+ggplot(data = m, aes(x = Var2, y = Var1)) +
+  geom_point(aes(size = value, fill = value), shape = 21, color = 'black', stroke = 1) +
+  labs(x = '', y = '') +
+  scale_size_area(name = '',
+                  breaks = seq(0, 2.5, 0.5),
+                  limits = c(0, 2.5),
+                  max_size = 5.5) +
+  scale_fill_gradient2(low = '#08519c', 
+                       mid = 'white', 
+                       high = 'red',
+                       limits = c(-5, 5),
+                       name = '',
+                       na.value = '#08519c') +
+  #facet_wrap(.~type) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(family = 'sans', size = 15),
+        panel.background = element_rect(fill = '#deebf7'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(fill = NA, color = 'gray', linewidth = 2),
+        axis.title.x = element_text(family = 'sans', face = 'bold', size = 15),
+        axis.text = element_text(family = 'sans', colour = 'black'),
+        axis.ticks = element_line(linewidth = 1))
+#ggsave(filename = 'plot.jpeg', dpi = 3000, width = 6, height = 10)
+m = rcorr(nc)$r[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+p = rcorr(nc)$P[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+m=melt(m)
+p=melt(p)
+m$p=p$value
+range(-log10(m$p))
+-log10(0.5)
+-log10(0.05)
+-log10(0.005)
+#m$p=-log10(p$value)
+p1 <- ggplot(m, aes(x = Var2, y = Var1)) + 
+  geom_point(aes(size=-log10(p), fill=value),
+             shape=21,
+             color="black") +
+  scale_fill_gradient2(name = 'cor',
+                       limit = c(-1,1),
+                       breaks = c(-1.0,-0.5,0.0,0.5,1.0),
+                       low='#444283',
+                       high='#943934', 
+                       mid="white", 
+                       midpoint = 0)+
+  scale_size_continuous(name = '-Log10 pvalue',
+                        limit = c(1,16),
+                        breaks = c(1,5,10,16))+
+ # geom_hline(yintercept=c(5.5, 10.5))+
+  labs(x=NULL,
+       y=NULL,
+       title = "")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        legend.key = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 12),
+        axis.text =element_text(size = 10, color = "black"),
+        axis.text.y = element_blank(),
+        axis.text.x=element_text(angle=45,hjust = 0.5,vjust=0.5))
+p1  
+# rect anotate
+anotate <- m
+head(anotate)
+p2 <- ggplot(anotate,aes(x = 0,y = Var1,label= Var1 )) +
+  geom_text()+
+  annotate("rect", 
+           ymin = c(0.5,5.5,10.5), ymax = c(5.5,10.5,15.5),
+           xmin = -5, xmax = 0.7,
+        #   fill = c('#ecf7fb','#fffbe7','#ffe7df'),
+           alpha = 0.5)+
+  theme_void()
+
+
+p2
+# patch
+library(patchwork)
+library(cowplot)
+p2+p1+plot_layout(nrow= 1,
+                  width = c(1, 2))
+
+#ggsave('bubble_heatmep.pdf',width = 10,height = 5)
+#########基因与各大免疫通路的相关性##############
+#############MCPcounter#################
+
+library(data.table)
+library(DESeq2)
+library(edgeR)
+library("edgeR")
+#创建分组
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+####################两大基因的表达数据#################
+library(data.table)
+library(Hmisc)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+signaturegene=c(     "H6PD",     "ALDOA")
+mat1=exppso[signaturegene,]
+###################求相关性并做图###########################
+###免疫浸润分析与气泡热图#########
+#rm(list=ls())
+library(limma)
+library(GSVA)
+library(GSEABase)
+library(clusterProfiler)
+library(reshape2)
+library(TCGAbiolinks)
+library(pheatmap)
+library(clusterProfiler)
+library(tinyarray)
+library(tinyarray)
+library(GSVA)
+library(Hmisc)
+
+library(IOBR)
+# MCPcounter########
+im_mcpcounter <- deconvo_tme(eset = exppso,
+                             method = "mcpcounter"
+)## 
+write.csv(im_mcpcounter,"E:/muma/银屑病代谢/免疫浸润_mcpcounter.csv")
+im_mcpcounter=read.csv("E:/muma/银屑病代谢/免疫浸润_mcpcounter.csv")
+im_mcpcounter=im_mcpcounter[,-1]
+re=im_mcpcounter
+rownames(re)=im_mcpcounter$ID
+re=re[,-1]
+
+re=as.data.frame(t(re))
+
+gs = c(   "H6PD",   "ALDOA")
+
+#identical(colnames(mat1),colnames(mat2))## [1]
+mat1=exppso[gs,]
+mat2=re
+nb=rbind(mat2,mat1)
+nc = t(nb)
+nc[1:4,1:4]##            Activated B cell Activated CD4 T cell Activated CD8 T cell## GSM1052615       -0.3720872           0.19193682          -0.07031845## GSM1052616       -0.3542791           0.17935420          -0.07245836## GSM1052617       -0.3741143           0.18833815          -0.07231844## GSM1052618       -0.4096034           0.06878724          -0.11710947##            Activated dendritic cell## GSM1052615               0.09408956## GSM1052616               0.09695546## GSM1052617               0.09016797## GSM1052618               0.09480261m = rcorr(nc)$r[1:nrow(re),(ncol(nc)-length(gs)+1):ncol(nc)]m[1:4,1:4]##                                CD36      DUSP6        DCT      SPRY2## Activated B cell         -0.9016301  0.8992479 -0.9067670  0.8978868## Activated CD4 T cell     -0.9861614  0.9863182 -0.9848700  0.9887454## Activated CD8 T cell     -0.9855525  0.9869912 -0.9905654  0.9870644## Activated dendritic cell  0.3144122 -0.3142938  0.2868775 -0.3116635p = rcorr(nc)$P[1:nrow(re),(ncol(nc)-length(gs)+1):ncol(nc)]p[1:4,1:4]##                                 CD36        DUSP6          DCT        SPRY2## Activated B cell         0.014039022 0.0147151178 0.0126333720 0.0151082852## Activated CD4 T cell     0.000285934 0.0002795077 0.0003416444 0.0001892849## Activated CD8 T cell     0.000311588 0.0002527423 0.0001330987 0.0002499140## Activated dendritic cell 0.543922358 0.5440823180 0.5814885810 0.5476413900
+m = rcorr(nc)$r[1:nrow(re),(ncol(nc)-length(gs)+1):ncol(nc)]
+
+p = rcorr(nc)$P[1:nrow(re),(ncol(nc)-length(gs)+1):ncol(nc)]
+p = rcorr(nc)$P[1:nrow(re),(ncol(nc)-length(gs)+1):ncol(nc)]
+#p[1:4,1:4]
+
+library(dplyr)
+library(dplyr)
+library(gtools)
+library(dplyr)
+library(gtools)
+star2=stars.pval(p)
+name=row.names(m)
+a <- strsplit(name,split = "_") 
+df=do.call(rbind,a)
+df=as.data.frame(df)
+row.names(m)=df$V1
+row.names(p)=df$V1
+star2=stars.pval(p)
+
+#tmp =matrix(case_when(p<0.01~"**",p<0.05~"*",TRUE~""),nrow = 28)
+library(dplyr)
+source("D:/R-4.1.0/modified_pheatmap.R")
+pheatmap(m,         display_numbers =star2,         angle_col =45,         color = colorRampPalette(c("#92b7d1", "white", "#d71e22"))(100),         border_color = "white",         treeheight_col = 0,         treeheight_row = 0)
+tmp=star2
+tmp = matrix(case_when(p<0.01~"**",p<0.05~"*",T~""),nrow = nrow(p))
+source("D:/R-4.1.0/modified_pheatmap.R")
+pheatmap(m,         display_numbers =tmp,         angle_col =45,         color = colorRampPalette(c("#92b7d1", "white", "#d71e22"))(100),         border_color = "white",         treeheight_col = 0,         treeheight_row = 0)
+
+#########气泡热图#############
+library(tidyr)# 使用的gather & spread
+library(reshape2) # 使用的函数 melt & dcast 
+m=as.data.frame(m)
+m1=as.data.frame(m$H6PD)
+colnames(m1)="H6PD"
+m2=as.data.frame(m$ALDOA)
+colnames(m2)="ALDOA"
+m1 <- melt(m1)
+rownames(m1)=row.names(m)
+m2 <- melt(m2)
+rownames(m2)=row.names(m)
+
+colnames(m1)
+colnames(m1)=c("gene","r")
+colnames(m2)=c("gene","r")
+mall=rbind(m1,m2)
+p=as.data.frame(p)
+p1=as.data.frame(p$H6PD)
+colnames(p1)="H6PD"
+p2=as.data.frame(p$ALDOA)
+colnames(p2)="ALDOA"
+p1 <- melt(p1)
+rownames(p1)=row.names(p)
+colnames(p1)
+colnames(p1)=c("gene","p")
+p2 <- melt(p2)
+rownames(p2)=row.names(p)
+
+colnames(p2)
+colnames(p2)=c("gene","p")
+pall=rbind(p1,p2)
+
+
+data_plot=cbind(mall,pall)
+data_plot=data_plot[,-3]
+
+data=data_plot
+data$path=row.names(data)
+data$path=gsub("1","",data$path)
+data=subset(data,data$r >=0.4|data$r < -0.4,select=c(path, gene,r,p))
+
+library(reshape2)#载入包
+library(ggplot2)#载入包
+ggplot(data,aes(x=path,y=gene,size=r,color=p))+geom_point()+
+  theme(panel.background = element_blank(),
+        panel.grid = element_line("gray"),
+        panel.border = element_rect(colour = "black",fill=NA))#ggplot2绘图，有点粗糙，见谅
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(ggsignif)
+library(ggpubr)
+library(RColorBrewer)
+library(rstatix)
+data$pgroup=ifelse(data$p<0.001,"p<0.001",
+                   ifelse(data$p<0.01,"p<0.01",   
+                          ifelse(data$p<0.05,"p<0.05", 
+                                 "Notsig")))
+ggplot(data = data, aes(x=gene,y=path)) +
+  geom_point(aes(size = -log10(p), fill = r), shape = 21, color = 'black', stroke = 1) +
+  labs(x = '', y = '') +
+  scale_size_area(name = '-log10(q-value)',
+                  breaks = seq(4, 20, 2),
+                  limits = c(-100, 100),
+                  max_size = 15) +
+  scale_fill_gradient2(low = '#08519c', 
+                       mid = 'white', 
+                       high = 'red',
+                       limits = c(-1, 1),
+                       name = '',
+                       na.value = '#08519c') +
+  # facet_wrap(.~type) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(family = 'sans', size = 15),
+        panel.background = element_rect(fill = '#deebf7'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(fill = NA, color = 'gray', linewidth = 2),
+        axis.title.x = element_text(family = 'sans', face = 'bold', size = 15),
+        axis.text = element_text(family = 'sans', colour = 'black'),
+        axis.ticks = element_line(linewidth = 1))
+library(export)
+graph2pdf(file='E:/muma/银屑病代谢/图2/二基因与免疫细胞的相关性.pdf',width=15,height=7)
+#########基因与各大代谢通路的相关性##############
+#与代谢相关的基因GSVA###
+
+library(data.table)
+library(DESeq2)
+library(edgeR)
+library("edgeR")
+#创建分组
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+
+#GSVA分析
+#引用包
+library(limma)
+library(GSEABase)
+library(GSVA)
+library(pheatmap)
+clusterFile="m6aCluster.txt"      #m6A分型输入文件
+gmtFile="E:/muma/银屑病代谢/图三/KEGG_metabolism_nc.gmt"                    #基因集文件
+
+exp=exppso
+dimnames=list(rownames(exp), colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)), nrow=nrow(exp), dimnames=dimnames)
+data=avereps(data)
+
+#GSVA分析
+geneSets=getGmt(gmtFile, geneIdType=SymbolIdentifier())
+gsvaResult=gsva(data, 
+                geneSets, 
+                min.sz=20, 
+                max.sz=200, 
+                verbose=TRUE,
+                parallel.sz=1)
+gsvaOut=rbind(id=colnames(gsvaResult), gsvaResult)
+####################两大基因的表达数据#################
+library(data.table)
+library(Hmisc)
+data=fread("E:/muma/银屑病GEO/GSE54456/GSE54456_RPKM.csv")
+name=data$V1
+data=data[,-1]
+row.names(data)=name
+group=read.csv("E:/muma/银屑病GEO/GSE54456/GSE54456临床信息.csv")
+table(group$tissue.type.ch1)
+group$group=gsub("lesional psoriatic skin","PP",group$tissue.type.ch1)
+group$group=gsub("normal skin","NN",group$group)
+table(group$group)
+data=as.data.frame(t(data))
+colnames(data)=name
+exp=as.data.frame(t(data))
+group=group[group$group==c("PP"),]
+exppso=exp[,colnames(exp)%in%group$title]######行名为基因
+CTKgenes <- c("IL2","IL12A","IL12B","IL17A","IFNA1","IFNB1","IFNG","IFNGR","CD11b",
+              "ITGAM","CD33","ENTPD1","ICOSLG","CD275","CD278","TNFSF9","TNFRSF9",
+              "CD40","CD40LG","CD70","CD27","TNFSF18","TNFRSF18","TNFSF14","TNFRSF14",
+              "TNFSF4","TNFRSF4","HLA-A","CD3","CEACAM1","CD80","CD86","CTLA4","CD276",
+              "VTCN1","PVR","CD226","TIGIT","CD96","LGALS3","LGALS3BP","LGALS9","LGALS9C",
+              "HAVCR2","HHLA2","TMIGD2","CD274","PDCD1LG2","PDCD1","VSIR")
+signaturegene=c(     "H6PD",     "ALDOA")
+mat1=exppso[signaturegene,]
+###################求相关性并做图###########################
+mat2=gsvaResult
+identical(colnames(mat1),colnames(mat2))## [1]
+nb=rbind(mat2,mat1)
+length(row.names(mat1))
+nc = t(nb)
+m = rcorr(nc)$r[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+p = rcorr(nc)$P[1:nrow(mat2),(ncol(nc)-length(row.names(mat1))+1):ncol(nc)]
+library(dplyr)
+library(gtools)
+star2=stars.pval(p)
+
+#tmp =matrix(case_when(p<0.01~"**",p<0.05~"*",TRUE~""),nrow = 28)
+library(dplyr)
+source("D:/R-4.1.0/modified_pheatmap.R")
+pheatmap(m,         display_numbers =star2,         angle_col =45,         color = colorRampPalette(c("#92b7d1", "white", "#d71e22"))(100),         border_color = "white",         treeheight_col = 0,         treeheight_row = 0)
+
+library(tidyr)# 使用的gather & spread
+library(reshape2) # 使用的函数 melt & dcast 
+m=as.data.frame(m)
+m1=as.data.frame(m$H6PD)
+colnames(m1)="H6PD"
+m2=as.data.frame(m$ALDOA)
+colnames(m2)="ALDOA"
+m1 <- melt(m1)
+rownames(m1)=row.names(m)
+m2 <- melt(m2)
+rownames(m2)=row.names(m)
+
+colnames(m1)
+colnames(m1)=c("gene","r")
+colnames(m2)=c("gene","r")
+mall=rbind(m1,m2)
+p=as.data.frame(p)
+p1=as.data.frame(p$H6PD)
+colnames(p1)="H6PD"
+p2=as.data.frame(p$ALDOA)
+colnames(p2)="ALDOA"
+p1 <- melt(p1)
+rownames(p1)=row.names(p)
+colnames(p1)
+colnames(p1)=c("gene","p")
+p2 <- melt(p2)
+rownames(p2)=row.names(p)
+
+colnames(p2)
+colnames(p2)=c("gene","p")
+pall=rbind(p1,p2)
+
+
+data_plot=cbind(mall,pall)
+data_plot=data_plot[,-3]
+
+data=data_plot
+data$path=row.names(data)
+data$path=gsub("1","",data$path)
+data=subset(data,data$r >=0.4|data$r < -0.4,select=c(path, gene,r,p))
+
+library(reshape2)#载入包
+library(ggplot2)#载入包
+ggplot(data,aes(x=path,y=gene,size=r,color=p))+geom_point()+
+  theme(panel.background = element_blank(),
+        panel.grid = element_line("gray"),
+        panel.border = element_rect(colour = "black",fill=NA))#ggplot2绘图，有点粗糙，见谅
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(ggsignif)
+library(ggpubr)
+library(RColorBrewer)
+library(rstatix)
+data$pgroup=ifelse(data$p<0.001,"p<0.001",
+                     ifelse(data$p<0.01,"p<0.01",   
+                            ifelse(data$p<0.05,"p<0.05", 
+                                   "Notsig")))
+table(data$pgroup)
+p=ggplot(data,aes(x=path,y=gene)) +geom_point(aes(size=p,color=p))+
+  scale_size_continuous(name = "p" ,range = c(1,5), breaks = c(0.0001,0.001,0.01,0.05))+
+  theme_bw()+#图片背景颜色设置
+  theme(panel.grid = element_blank(),
+        axis.text.x=element_text(angle=90,hjust = 1,vjust=0.5))+
+  labs(x=NULL,y=NULL)
+p + scale_color_gradientn(colors = c("darkblue", "darkorange"))+
+  scale_color_gradient2(
+    name = "Spearman Correlation",
+    low = "darkblue", high = "darkorange"
+  ) 
+
+tile <- ggplot(data, aes_(x = ~gene,y = ~path,
+                          size = ~p,
+                          color = ~r,
+                          fill = ~r)) +
+  geom_point() +
+  theme_minimal() +
+  scale_shape_manual(values = c(1, 1)) + 
+  scale_color_manual(values = c("black"))+
+  scale_size_continuous(name = "p" ,range = c(2, 7), breaks = c(0.00001,0.0001,0.001)) + 
+  scale_color_gradient2(low = "darkblue", high = "darkorange",
+                        guide = "colorbar") +
+  scale_fill_gradient2(low = "darkblue", high = "darkorange",
+                       guide = "colorbar") +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 90L,
+                                   hjust = 1L,
+                                   vjust = 0.5),
+        legend.position = "bottom") 
+tile + theme(panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"))
+library(export)
+graph2pdf(file='E:/muma/银屑病代谢/图2/二基因与代谢通路的相关性.pdf',width=15,height=7)
+dev.off()
+ggplot(data = data, aes(x=gene,y=path)) +
+  geom_point(aes(size = -log10(p), fill = r), shape = 21, color = 'black', stroke = 1) +
+  labs(x = '', y = '') +
+  scale_size_area(name = '-log10(q-value)',
+                  breaks = seq(4, 20, 2),
+                  limits = c(-100, 100),
+                  max_size = 10) +
+  scale_fill_gradient2(low = '#08519c', 
+                       mid = 'white', 
+                       high = 'red',
+                       limits = c(-1, 1),
+                       name = '',
+                       na.value = '#08519c') +
+ # facet_wrap(.~type) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_text(family = 'sans', size = 15),
+        panel.background = element_rect(fill = '#deebf7'),
+        panel.grid = element_blank(),
+        panel.border = element_rect(fill = NA, color = 'gray', linewidth = 2),
+        axis.title.x = element_text(family = 'sans', face = 'bold', size = 15),
+        axis.text = element_text(family = 'sans', colour = 'black'),
+        axis.ticks = element_line(linewidth = 1))
+ggsave(filename = 'E:/muma/银屑病代谢/图2/二基因与代谢通路的相关性.jpeg', dpi = 3000, width = 6, height = 10)
