@@ -232,6 +232,340 @@ scRNA4<- JoinLayers(scRNA4)
 table(scRNA4$celltype)
 save(scRNA4,file="E:/muma/GSE151177/scRNA4.Rdata")
 load("E:/muma/GSE151177/scRNA4.Rdata")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+
+table(scRNA4$celltype)
+
+DimPlot(scRNA4, reduction = "umap",
+        group.by = "celltype",label = T) + NoLegend()
+scRNA.final=SeuratObject::UpdateSeuratObject(scRNA4)
+scRNA.final <- CreateAssay5Object(counts = GetAssayData(scRNA4,
+                                                                assay = "RNA", slot = "counts"))
+scRNA.final  <- NormalizeData(scRNA.final )
+scRNA.final3 <- irGSEA.score(object = scRNA.final, assay = "RNA", slot = "data",
+                                     msigdb = T, species = "Homo sapiens", category = "C2",  
+                             subcategory = "CP:KEGG", geneid = "symbol",
+                                     method = c("AUCell", "UCell", "singscore", "ssgsea"), kcdf = 'Gaussian')
+
+Seurat::Assays(scRNA.final3)
+save(scRNA.final3,file="E:/muma/GSE151177/scRNA.final3.Rdata")
+#write.csv(scRNA.final3,"E:/muma/GSE151177/scRNA.final3.csv")
+AUCell=as.data.frame(scRNA.final3@assays$AUCell$data)
+UCell=as.data.frame(scRNA.final3@assays$UCell$data)
+singscore=as.data.frame(scRNA.final3@assays$singscore$data)
+ssgsea=as.data.frame(scRNA.final3@assays$ssgsea$data)
+save(AUCell,UCell,singscore,ssgsea,file="E:/muma/GSE151177/病人单细胞代谢评分.Rdata")
+#save(scRNA_scissor.final3,file="E:/muma/GSE151177/scRNA_scissor.final3.Rdata")
+# Wlicox test is perform to all enrichment score matrixes and gene sets
+# with adjusted p value &lt; 0.05 are used to integrated through RRA.
+# Among them, Gene sets with p value &lt; 0.05 are statistically
+# significant and common differential in all gene sets enrichment analysis
+# methods. All results are saved in a list.
+load("E:/muma/GSE151177/scRNA.final3.Rdata")
+result.dge <- irGSEA.integrate(object = scRNA.final3, 
+                               group.by = scRNA4$celltype,
+                               metadata = NULL, col.name = NULL,
+                               # method = c("AUCell","UCell","singscore",
+                               #           "ssgsea"))
+                               method = c("AUCell","UCell","singscore","ssgsea"))
+class(result.dge)
+irGSEA.heatmap.plot <- irGSEA.heatmap(object = result.dge, 
+                                      method = "RRA",
+                                      top = 50, 
+                                      show.geneset = NULL)
+irGSEA.heatmap.plot
+library(export)
+graph2pdf(file="E:/muma/GSE151177/scissor_posvsdeg_irGSEA.heatmap.plot.pdf",width=9,height=7)
+load("E:/muma/GSE151177/病人单细胞代谢评分.Rdata")
+AUCell=AUCell[rownames(AUCell)%in%"KEGG-PENTOSE-PHOSPHATE-PATHWAY",]
+UCell=UCell[rownames(UCell)%in%"KEGG-PENTOSE-PHOSPHATE-PATHWAY",]
+singscore=singscore[rownames(singscore)%in%"KEGG-PENTOSE-PHOSPHATE-PATHWAY",]
+ssgsea=ssgsea[rownames(ssgsea)%in%"KEGG-PENTOSE-PHOSPHATE-PATHWAY",]
+score=rbind(AUCell,UCell,singscore,ssgsea)
+row.names(score)=c("AUCell","UCell","singscore","ssgsea")
+load("E:/muma/GSE151177/scRNA4.Rdata")
+table(scRNA4$celltype)
+group=scRNA4$celltype
+######做热图###############
+object = result.dge 
+method = "RRA"
+top = 1500
+show.geneset = NULL
+cluster_rows = T
+significance.color = NULL
+cluster.color = NULL
+
+direction.color = NULL
+rowname.fointsize = 7
+heatmap.width = 17
+heatmap.heigh = 13
+cluster.levels = NULL
+{
+  # pretreatment
+  if (! purrr::is_list(object)) {
+    stop("object should be a list.")
+  }
+  if ((! all(method %in% names(object))) | (length(method) > 1) | (purrr::is_null(method))) {
+    stop("`method` should be one of the followling : AUCell, UCell, singscore, ssgsea, JASMINE, VAM, scSE, VISION, gficf, GSVA, zscore, plage, wmean, wsum, mdt, viper,  GSVApy, AddModuleScore, pagoda2, RRA.")
+  }
+  pvalue <- NULL
+  if (method %in% names(object)[! names(object) == "RRA"]) {
+    object[method] <- object[method] %>% purrr::map( ~.x %>% dplyr::rename(pvalue = p_val_adj))
+  }
+  # matrix
+  cluster <- NULL
+  direction <- NULL
+  pvalue <- NULL
+  cell <- NULL
+  value <- NULL
+  Name <- NULL
+  sig.genesets.heatmap <- object[[method]] %>%
+    dplyr::mutate(cell = stringr::str_c(cluster, direction, sep = "_")) %>%
+    dplyr::select(c("Name", "pvalue", "cell")) %>%
+    dplyr::mutate(pvalue = dplyr::if_else(pvalue < 0.05, "significant","no significant")) %>%
+    tidyr::spread(cell, pvalue, fill = "no significant") %>%
+    tibble::column_to_rownames(var = "Name")
+  
+  if (length(unique(object[[method]]$cluster)) != 0.5*ncol(sig.genesets.heatmap)) {
+    cell.name <- c(stringr::str_c(unique(object[[method]]$cluster), c("up"), sep = "_"),
+                   stringr::str_c(unique(object[[method]]$cluster), c("down"), sep = "_"))
+    cell.name <- cell.name[!cell.name %in% colnames(sig.genesets.heatmap)]
+    for (i in cell.name) {
+      sig.genesets.heatmap <- sig.genesets.heatmap %>%
+        dplyr::mutate(!!rlang::sym(i):= "no significant")
+      sig.genesets.heatmap <- sig.genesets.heatmap[, sort(colnames(sig.genesets.heatmap))]
+    }
+    
+  }
+  
+  sig.genesets.heatmap.text <- object[[method]] %>%
+    dplyr::mutate(cell = stringr::str_c(cluster, direction, sep = "_")) %>%
+    dplyr::select(c("Name", "pvalue", "cell")) %>%
+    dplyr::mutate(pvalue = dplyr::case_when(  pvalue < 0.0001 ~ "****",
+                                              pvalue < 0.001 ~ "***",
+                                              pvalue < 0.01 ~ "**",
+                                              pvalue < 0.05 ~ "*",
+                                              pvalue >= 0.05 ~ " ",
+                                              TRUE ~ NA_character_)) %>%
+    tidyr::spread(cell, pvalue, fill = " ") %>%
+    tibble::column_to_rownames(var = "Name")
+  
+  if (length(unique(object[[method]]$cluster)) != 0.5*ncol(sig.genesets.heatmap.text)) {
+    cell.name <- c(stringr::str_c(unique(object[[method]]$cluster), c("up"), sep = "_"),
+                   stringr::str_c(unique(object[[method]]$cluster), c("down"), sep = "_"))
+    cell.name <- cell.name[!cell.name %in% colnames(sig.genesets.heatmap.text)]
+    for (i in cell.name) {
+      sig.genesets.heatmap.text <- sig.genesets.heatmap.text %>%
+        dplyr::mutate(!!rlang::sym(i):= " ")
+      sig.genesets.heatmap.text <- sig.genesets.heatmap.text[, sort(colnames(sig.genesets.heatmap.text))]
+    }
+    
+  }
+  
+  
+  # set levels
+  if (! purrr::is_null(cluster.levels)) {
+    cluster.direction <- NULL
+    heatmap.levels <- data.frame(cluster.direction = colnames(sig.genesets.heatmap)) %>%
+      dplyr::mutate(cluster = stringr::str_remove(cluster.direction, pattern = "_up|_down")) %>%
+      dplyr::arrange(factor(cluster, levels = cluster.levels)) %>%
+      dplyr::pull(cluster.direction)
+    sig.genesets.heatmap <- sig.genesets.heatmap %>% dplyr::select(heatmap.levels)
+    sig.genesets.heatmap.text <- sig.genesets.heatmap.text %>% dplyr::select(heatmap.levels)
+  }
+  
+  # top rows
+  if (purrr::is_null(show.geneset)) {
+    sig.genesets.heatmap <- sig.genesets.heatmap %>% dplyr::slice_head(n = top)
+    sig.genesets.heatmap.text <- sig.genesets.heatmap.text %>% dplyr::slice_head(n = top)
+  }else{
+    sig.genesets.heatmap <- sig.genesets.heatmap[rownames(sig.genesets.heatmap) %in% show.geneset, ]
+    sig.genesets.heatmap.text <- sig.genesets.heatmap.text[rownames(sig.genesets.heatmap.text) %in% show.geneset, ]
+    if (purrr::is_null(sig.genesets.heatmap)) {
+      stop("All genesets of `show.geneset` are not in the `method`.")
+    }
+    if (! all(show.geneset %in% rownames(sig.genesets.heatmap))){
+      a <- show.geneset[! show.geneset %in% rownames(sig.genesets.heatmap)]
+      message(paste0("Some genesets of `show.geneset` are not in the `method` : ",a))
+    }
+  }
+  
+  # top annotation
+  sig.genesets.heatmap.cluster <- stringr::str_remove(colnames(sig.genesets.heatmap), pattern = "_up|_down")
+  sig.genesets.heatmap.direction <- stringr::str_extract(colnames(sig.genesets.heatmap), pattern = "up|down")
+  if (purrr::is_null(cluster.color)) {
+    cluster.color <- ggsci::pal_igv()(length(unique(sig.genesets.heatmap.cluster)))
+  }
+  
+  if (purrr::is_null(direction.color)) {
+    direction.color <- c("#4575B4","#D73027")
+  }
+  heatmap.top.anno <- ComplexHeatmap::HeatmapAnnotation(Cluster = sig.genesets.heatmap.cluster,
+                                                        Direction = sig.genesets.heatmap.direction,
+                                                        show_legend = F,
+                                                        show_annotation_name = T,
+                                                        gap = grid::unit(1, "mm"),
+                                                        annotation_name_gp= grid::gpar(fontsize = 8),
+                                                        col = list(Cluster = c(structure(cluster.color,
+                                                                                         names = unique(sig.genesets.heatmap.cluster))),
+                                                                   Direction = c(structure(direction.color,
+                                                                                           names = c("down","up")))))
+  # heatmap body
+  if (purrr::is_null(significance.color)) {
+    significance.color <- structure(c("#D0DFE6FF","#f87669"), names = c(0,1))
+  }
+  
+  sig.genesets.heatmap <- sig.genesets.heatmap %>%
+    tibble::rownames_to_column(var = "Name") %>%
+    tidyr::gather(cell, value, -Name) %>%
+    dplyr::mutate(value = dplyr::if_else(value=="no significant", 0, 1)) %>%
+    tidyr::spread(cell, value) %>%
+    tibble::column_to_rownames(var = "Name")
+  
+  # set levels
+  if (! purrr::is_null(cluster.levels)) {
+    cluster.direction <- NULL
+    heatmap.levels <- data.frame(cluster.direction = colnames(sig.genesets.heatmap)) %>%
+      dplyr::mutate(cluster = stringr::str_remove(cluster.direction, pattern = "_up|_down")) %>%
+      dplyr::arrange(factor(cluster, levels = cluster.levels)) %>%
+      dplyr::pull(cluster.direction)
+    sig.genesets.heatmap <- sig.genesets.heatmap %>% dplyr::select(heatmap.levels)
+    sig.genesets.heatmap.text <- sig.genesets.heatmap.text %>% dplyr::select(heatmap.levels)
+  }
+  
+  sig.genesets.heatmap <- as.matrix(sig.genesets.heatmap)
+}
+#####读取代谢名称
+kegg_metabolism=read.csv("E:/muma/KEGG代谢通路名.csv")
+name=kegg_metabolism$name
+sig.genesets.heatmap.text$pathway=row.names(sig.genesets.heatmap.text)
+#sig.genesets.heatmap.text2=sig.genesets.heatmap.text[sig.genesets.heatmap.text$pathway%in%name,]
+sig.genesets.heatmap.text2=sig.genesets.heatmap.text %>% filter(grepl('KEGG-PENTOSE-PHOSPHATE-PATHWAY', pathway))
+sig.genesets.heatmap.text=sig.genesets.heatmap.text2[,-19]
+#sig.genesets.heatmap.text$`Endothelial cells_down`
+#sig.genesets.heatmap.text<- sig.genesets.heatmap.text[!apply(sig.genesets.heatmap.text == " ", 1, all),]
+sig.genesets.heatmap=as.data.frame(sig.genesets.heatmap)
+sig.genesets.heatmap$pathway=row.names(sig.genesets.heatmap)
+sig.genesets.heatmap2=sig.genesets.heatmap %>% filter(grepl('KEGG-PENTOSE-PHOSPHATE-PATHWAY', pathway))
+##sig.genesets.heatmap2=sig.genesets.heatmap[sig.genesets.heatmap$pathway%in%name,]
+sig.genesets.heatmap2=sig.genesets.heatmap2[,-19]
+#sig.genesets.heatmap<- sig.genesets.heatmap[!apply(sig.genesets.heatmap == "0", 1, all),]
+
+sig.genesets.heatmap <- as.matrix(sig.genesets.heatmap2)
+#sig.genesets.heatmap <- na.omit(sig.genesets.heatmap)
+#sig.genesets.heatmap.text=na.omit(sig.genesets.heatmap.text)
+heatmap.body <- ComplexHeatmap::Heatmap(sig.genesets.heatmap,
+                                        heatmap_width = grid::unit(heatmap.width, "cm"),
+                                        heatmap_height = grid::unit(heatmap.heigh, "cm"),
+                                        name = method,
+                                        col = significance.color,
+                                        cluster_rows = cluster_rows,
+                                        row_names_max_width = ComplexHeatmap::max_text_width(
+                                          rownames(sig.genesets.heatmap),
+                                          gp = grid::gpar(fontsize = rowname.fointsize)
+                                        ),
+                                        cluster_columns = F,
+                                        top_annotation = heatmap.top.anno,
+                                        color_space = "RGB",
+                                        show_column_names = F,
+                                        row_names_side="right",
+                                        row_names_gp = grid::gpar(fontsize = rowname.fointsize),
+                                        rect_gp = grid::gpar(col = "white", lwd = 2),
+                                        show_heatmap_legend = F,
+                                        cell_fun = function(j, i, x, y, width, height, fill){
+                                          grid::grid.text(sig.genesets.heatmap.text[i, j], x, y, gp = grid::gpar(fontsize = 10))
+                                        })
+
+# legend
+# represent sigficant
+lgd1 <- ComplexHeatmap::Legend(labels = c("no significant","significant"),
+                               title = method, legend_gp = grid::gpar(fill = significance.color))
+# represent p value
+lgd2 <- ComplexHeatmap::Legend(pch = c("*","**","***","****"),
+                               type = "points", labels = c("< 0.05","< 0.01","< 0.001","< 0.0001"),
+                               title = "P Value")
+# represent cluster
+lgd3 <- ComplexHeatmap::Legend(labels = unique(sig.genesets.heatmap.cluster),
+                               title = "Cluster",
+                               legend_gp = grid::gpar(fill = cluster.color))
+# represent direction
+lgd4 <- ComplexHeatmap::Legend(labels = c("down","up"),
+                               title = "Direction",
+                               legend_gp = grid::gpar(fill = direction.color),
+                               labels_gp = grid::gpar(fill = direction.color))
+
+# merge all legend
+heatmap.legend <- ComplexHeatmap::packLegend(lgd3, lgd4, lgd1, lgd2,
+                                             direction = "vertical",
+                                             column_gap = grid::unit(1, "cm"))
+
+# plot
+heatmap.plot <- grid::grid.grabExpr(ComplexHeatmap::draw(heatmap.body,
+                                                         annotation_legend_list = heatmap.legend)) %>% ggplotify::as.ggplot()
+dev.off()
+heatmap.plot
+
+dev.off()
+dev.off()
+
+
+
+#############做散点小提琴图#################
+score=as.data.frame(t(score))
+table(scRNA4$celltype)
+## plot
+library(RColorBrewer)
+library(ggpubr)
+library(ggplot2)
+score$celltype<-factor(scRNA4$celltype,levels=c("HFs","T-cells","KCs_granulosa","macro/DC",
+                                                "KCs_Spinous/Basal","Melanocytes","NKs","Endothelial cells","Fibroblasts"))
+# comparisons
+my_comparisons <- list(c("macro/DC", "T-cells"),
+                       c("T-cells", "NKs"))
+
+
+# gene list
+gc <- head( colnames(score), -1)
+#开始批量绘制
+mycol=c("#5050FFFF" ,"#CE3D32FF", "#749B58FF" ,"#F0E685FF", "#466983FF", "#BA6338FF", "#5DB1DDFF", "#802268FF",
+        "#6BD76BFF")
+plist<-list()
+for (i in 1:length(gc)){
+  bar_tmp<-score[,c(gc[i],"celltype")]
+  colnames(bar_tmp)<-c("score","celltype")
+  pb1<- ggplot(data = bar_tmp,aes(x = celltype, 
+                                  y = score , 
+                                  fill = celltype))+ 
+    scale_fill_manual(values = mycol) +
+    geom_violin(alpha = 0.4, position = position_dodge(width = .75), 
+                size = 0.8, color="black") +
+    geom_boxplot(notch = TRUE, outlier.size = -1, 
+                 color="black", lwd=0.2, alpha = 0.7) +
+    geom_point(shape = 21, size=0.2, 
+               position = position_jitterdodge(), 
+               color="black", alpha = 1) +
+    theme_bw() + 
+    ylab("score") +
+    xlab(gc[i]) +
+    theme(axis.text.x = element_text(size = 12, color = "black"),
+          axis.ticks = element_line(size=0.2, color="black"),
+          axis.ticks.length = unit(0.2, "cm"),
+          legend.position = "none",
+          panel.background = element_blank(),
+          panel.grid = element_blank(),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 12)) +
+    stat_compare_means(method="t.test",hide.ns = F,comparisons =my_comparisons,label="p.signif")
+  plist[[i]]<-pb1
+} 
+
+# cowplot
+library(cowplot)
+p <- plot_grid(plotlist = plist, ncol = 1)
+dev.off()
+## save
+ggsave("E:/muma/GSE151177/boxplotscore.pdf",width = 14,height = 20)
+
 scRNA5=scRNA4
 ####把H6PD+ALODA计算，分为高低组，即为表型数据###################
 # risk score计算######
